@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { DailyGoalBar } from "@/components/DailyGoalBar";
 import { FeedbackButtons } from "@/components/FeedbackButtons";
 import { FlashCard } from "@/components/FlashCard";
 import { ResetModal } from "@/components/ResetModal";
@@ -43,6 +44,11 @@ export default function PracticePage() {
   const [revealed, setRevealed] = useState(false);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
 
+  const [dailyGoal, setDailyGoal] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
+
   const [toastMsg, setToastMsg] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -75,6 +81,13 @@ export default function PracticePage() {
     setLevels(data.levels ?? []);
   }, []);
 
+  const loadDailyGoal = useCallback(async () => {
+    const res = await fetch("/api/progress/daily-goal");
+    if (!res.ok) return;
+    const data = await res.json();
+    setDailyGoal({ completed: data.newCardsToday, total: data.newCardsCap });
+  }, []);
+
   // Wait for the session to resolve, then load the initial data set exactly
   // once — full SRS mode for a signed-in user, a single freely-browsable
   // level for a guest.
@@ -86,6 +99,7 @@ export default function PracticePage() {
     loadLevels();
     if (isAuthed) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadDailyGoal();
       loadCard(mode);
     } else {
       setMode("level");
@@ -127,6 +141,7 @@ export default function PracticePage() {
           }
         : prev,
     );
+    setDailyGoal({ completed: result.newCardsToday, total: result.newCardsCap });
 
     if (result.leveledUp && result.newLevelId) {
       showToast(
@@ -154,6 +169,7 @@ export default function PracticePage() {
     await fetch("/api/progress/reset", { method: "POST" });
     showToast("Progress reset successfully");
     await loadLevels();
+    await loadDailyGoal();
     setMode("auto");
     setSelectedLevelId(undefined);
     await loadCard("auto");
@@ -209,6 +225,10 @@ export default function PracticePage() {
             </select>
           )}
         </div>
+
+        {isAuthed && dailyGoal && (
+          <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
+        )}
 
         <FlashCard
           card={card}

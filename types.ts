@@ -39,6 +39,8 @@ export interface ProgressResult {
   reviews: number;
   leveledUp: boolean;
   newLevelId: LevelId | null;
+  newCardsToday: number;
+  newCardsCap: number;
 }
 
 export interface LevelSummary {

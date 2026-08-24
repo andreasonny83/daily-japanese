@@ -422,6 +422,11 @@ export async function submitProgress(
     card.levelId as LevelId,
   );
 
+  const progressAfter = await db
+    .select()
+    .from(progress)
+    .where(eq(progress.userId, userId));
+
   return {
     easeFactor: updated.easeFactor,
     intervalDays: updated.intervalDays,
@@ -430,6 +435,21 @@ export async function submitProgress(
     reviews: newReviews,
     leveledUp,
     newLevelId,
+    newCardsToday: countNewCardsToday(progressAfter, now),
+    newCardsCap: NEW_CARDS_PER_DAY,
+  };
+}
+
+export async function getDailyNewCardProgress(
+  userId: string,
+): Promise<{ newCardsToday: number; newCardsCap: number }> {
+  const allProgress = await db
+    .select()
+    .from(progress)
+    .where(eq(progress.userId, userId));
+  return {
+    newCardsToday: countNewCardsToday(allProgress, new Date()),
+    newCardsCap: NEW_CARDS_PER_DAY,
   };
 }
 

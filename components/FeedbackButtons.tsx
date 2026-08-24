@@ -43,11 +43,11 @@ export function FeedbackButtons({
               key={score}
               disabled={disabled || selectedScore !== null}
               onClick={() => onSelect(score)}
-              className={`flex flex-col items-center justify-center rounded-lg border px-1 py-1.5 font-bold transition-all duration-200 will-change-transform hover:-translate-y-1 hover:scale-105 hover:shadow-lg active:translate-y-px active:scale-95 ${COLOR_CLASSES[color]} ${
+              className={`flex flex-col items-center justify-center rounded-lg border px-1 py-1.5 font-bold transition-all duration-200 will-change-transform ${COLOR_CLASSES[color]} ${
                 isSelected
                   ? "scale-105 ring-4 ring-indigo-500 ring-offset-2"
                   : ""
-              } ${isDimmed ? "opacity-40" : "opacity-100"}`}
+              } ${isDimmed ? "opacity-40" : "opacity-100"} ${selectedScore !== null ? "" : "hover:-translate-y-1 hover:scale-105 hover:shadow-lg active:translate-y-px active:scale-95"} `}
             >
               <span className="mb-0.5 text-base md:text-lg">{score}</span>
               <span className="text-[9px] uppercase tracking-tighter opacity-80 md:text-[10px]">
