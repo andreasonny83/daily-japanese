@@ -265,7 +265,7 @@ export const cards: CardSeed[] = [
     grammarPoint: "を問わず (regardless of)",
     kanji: "経験の有無を問わず、応募を受け付けています。",
     kana: "けいけんの うむを とわず、おうぼを うけつけています。",
-    romaji: "Keiken no umu o towazu, ouboo o uketsukete imasu.",
+    romaji: "Keiken no umu o towazu, oubo o uketsukete imasu.",
     english: "We are accepting applications regardless of prior experience.",
   },
   {

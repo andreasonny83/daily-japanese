@@ -615,9 +615,9 @@ export const cards: CardSeed[] = [
     type: "sentence",
     category: null,
     grammarPoint: "Appearance ~そうだ",
-    kanji: "その箱は小さくて、何も入らなそうです。",
-    kana: "その はこは ちいさくて、なにも はいらなそうです。",
-    romaji: "Sono hako wa chiisakute, nani mo hairanasou desu.",
+    kanji: "その箱は小さくて、何も入らなさそうです。",
+    kana: "その はこは ちいさくて、なにも はいらなさそうです。",
+    romaji: "Sono hako wa chiisakute, nani mo hairanasasou desu.",
     english: "That box is small and doesn't look like it can hold anything.",
   },
   {
@@ -1352,7 +1352,7 @@ export const cards: CardSeed[] = [
     kanji: "この店は観光地として有名だ。",
     kana: "この みせは かんこうちとして ゆうめいだ。",
     romaji: "Kono mise wa kankouchi to shite yuumei da.",
-    english: "This place is famous as a tourist spot.",
+    english: "This shop is famous as a tourist attraction.",
   },
   {
     id: "n3_122",

@@ -263,7 +263,7 @@ export const cards: CardSeed[] = [
     romaji:
       "Osanai kodomo ga hitori de naite iru no o mite, koe o kakezu ni wa irarenakatta.",
     english:
-      "Seeing a young child crying alone, I couldn't help but speak to her.",
+      "Seeing a young child crying alone, I couldn't help but speak to the child.",
   },
   {
     id: "n1_22",
