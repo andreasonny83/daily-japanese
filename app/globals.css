@@ -1,0 +1,28 @@
+/* Precompiled styles for @neondatabase/auth-ui components (this project is
+   on Tailwind v3, so the package's Tailwind-v4-source `/tailwind` export
+   can't be used — this is the standalone compiled equivalent). Must precede
+   the @tailwind directives below (CSS requires @import rules come first). */
+@import "@neondatabase/auth-ui/css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+.japanese-text {
+  font-family: var(--font-noto-jp), sans-serif;
+}
