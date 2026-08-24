@@ -13,23 +13,15 @@ import {
 
 import { db } from "./index";
 import { cards, levels, progress, userLevelState } from "./schema";
+import { applySm2Update, DEFAULT_EASE_FACTOR, type Sm2State } from "../srs";
 
 type CardRow = typeof cards.$inferSelect;
 type ProgressRow = typeof progress.$inferSelect;
 
-const MASTERY_CONFIDENCE_THRESHOLD = 4;
-const MASTERY_MIN_REVIEWS = 2;
-const WEAK_CONFIDENCE_THRESHOLD = 2;
-const REVIEW_POOL_CHANCE = 0.2;
-
-const SCORE_DELTAS: Record<number, number> = {
-  0: -2,
-  1: -1,
-  2: -0.5,
-  3: 0.5,
-  4: 1,
-  5: 1.5,
-};
+const MASTERY_INTERVAL_THRESHOLD = 21;
+const WEAK_EASE_THRESHOLD = 2.0;
+const WEAK_INTERVAL_THRESHOLD = 3;
+const NEW_CARDS_PER_DAY = 15;
 
 function toCard(row: CardRow): {
   id: string;
@@ -55,70 +47,129 @@ function toCard(row: CardRow): {
   };
 }
 
-function computeWeight(confidence: number, lastReviewed: Date | null): number {
-  let weight = Math.pow(5 - confidence, 2) + 1;
-  if (lastReviewed) {
-    const daysSince =
-      (Date.now() - lastReviewed.getTime()) / (1000 * 60 * 60 * 24);
-    weight += daysSince * 0.5;
-  }
-  return weight;
-}
-
-function weightedPick<T>(items: T[], weightFn: (item: T) => number): T | null {
-  if (items.length === 0) return null;
-  const weighted = items.map((item) => ({
-    item,
-    weight: Math.max(weightFn(item), 0.01),
-  }));
-  const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
-  let random = Math.random() * totalWeight;
-  for (const w of weighted) {
-    random -= w.weight;
-    if (random <= 0) return w.item;
-  }
-  return weighted[weighted.length - 1].item;
-}
-
-function pickWeightedCard(
-  levelCards: CardRow[],
+function toCardWithProgress(
+  card: CardRow,
   progressByCard: Map<string, ProgressRow>,
   isReview: boolean,
-): CardWithProgress | null {
-  const picked = weightedPick(levelCards, (c) => {
-    const p = progressByCard.get(c.id);
-    return computeWeight(p?.confidence ?? 0, p?.lastReviewed ?? null);
-  });
-  if (!picked) return null;
-  const p = progressByCard.get(picked.id);
+): CardWithProgress {
+  const p = progressByCard.get(card.id);
   return {
-    ...toCard(picked),
-    confidence: p?.confidence ?? 0,
+    ...toCard(card),
+    intervalDays: p?.intervalDays ?? 0,
+    repetitions: p?.repetitions ?? 0,
     isReview,
   };
+}
+
+function isDue(p: ProgressRow | undefined, now: Date): boolean {
+  return !!p?.nextReviewAt && p.nextReviewAt.getTime() <= now.getTime();
+}
+
+function isNew(p: ProgressRow | undefined): boolean {
+  return !p || !p.nextReviewAt;
+}
+
+function isWeak(p: ProgressRow): boolean {
+  return p.easeFactor <= WEAK_EASE_THRESHOLD || p.intervalDays < WEAK_INTERVAL_THRESHOLD;
+}
+
+function pickRandom<T>(items: T[]): T | null {
+  if (items.length === 0) return null;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+// Among due cards, favor the most overdue, with light randomization among
+// the top few so the same card doesn't dominate every "most overdue" tie.
+function pickMostOverdueCard(
+  dueCards: CardRow[],
+  progressByCard: Map<string, ProgressRow>,
+  now: Date,
+): CardRow {
+  const ranked = dueCards
+    .map((card) => ({
+      card,
+      overdueMs: now.getTime() - progressByCard.get(card.id)!.nextReviewAt!.getTime(),
+    }))
+    .sort((a, b) => b.overdueMs - a.overdueMs);
+  const topSlice = ranked.slice(0, Math.min(3, ranked.length));
+  return topSlice[Math.floor(Math.random() * topSlice.length)].card;
+}
+
+function pickSoonestDueCard(
+  reviewedCards: CardRow[],
+  progressByCard: Map<string, ProgressRow>,
+): CardRow {
+  return reviewedCards.reduce((soonest, card) => {
+    const a = progressByCard.get(card.id)!.nextReviewAt!;
+    const b = progressByCard.get(soonest.id)!.nextReviewAt!;
+    return a < b ? card : soonest;
+  });
+}
+
+function countNewCardsToday(allProgress: ProgressRow[], now: Date): number {
+  const todayKey = now.toISOString().slice(0, 10);
+  return allProgress.filter(
+    (p) =>
+      p.reviews === 1 &&
+      p.lastReviewed &&
+      p.lastReviewed.toISOString().slice(0, 10) === todayKey,
+  ).length;
+}
+
+// Picks the next card from a pool: due reviews first (most overdue), then a
+// fresh new card if the daily cap allows, then (pull-ahead only) the
+// soonest-due reviewed card or, failing that, a new card ignoring the cap.
+function pickFromPool(
+  pool: CardRow[],
+  progressByCard: Map<string, ProgressRow>,
+  now: Date,
+  opts: { pullAhead: boolean; allowNewCards: boolean; newCardsToday: number },
+): CardWithProgress | null {
+  const duePool = pool.filter((c) => isDue(progressByCard.get(c.id), now));
+  if (duePool.length > 0) {
+    const picked = pickMostOverdueCard(duePool, progressByCard, now);
+    return toCardWithProgress(picked, progressByCard, true);
+  }
+
+  if (opts.allowNewCards && opts.newCardsToday < NEW_CARDS_PER_DAY) {
+    const picked = pickRandom(pool.filter((c) => isNew(progressByCard.get(c.id))));
+    if (picked) return toCardWithProgress(picked, progressByCard, false);
+  }
+
+  if (!opts.pullAhead) return null;
+
+  const reviewedPool = pool.filter((c) => !!progressByCard.get(c.id)?.nextReviewAt);
+  if (reviewedPool.length > 0) {
+    const picked = pickSoonestDueCard(reviewedPool, progressByCard);
+    return toCardWithProgress(picked, progressByCard, true);
+  }
+
+  if (opts.allowNewCards) {
+    const picked = pickRandom(pool.filter((c) => isNew(progressByCard.get(c.id))));
+    if (picked) return toCardWithProgress(picked, progressByCard, false);
+  }
+
+  return null;
 }
 
 function computeLevelMastery(
   levelCards: CardRow[],
   progressByCard: Map<string, ProgressRow>,
-): { avgConfidence: number; minReviews: number; mastered: boolean } {
+): { avgIntervalDays: number; mastered: boolean } {
   if (levelCards.length === 0) {
-    return { avgConfidence: 0, minReviews: 0, mastered: false };
+    return { avgIntervalDays: 0, mastered: false };
   }
-  let confSum = 0;
-  let minReviews = Infinity;
+  let intervalSum = 0;
+  let allPastThreshold = true;
   for (const c of levelCards) {
     const p = progressByCard.get(c.id);
-    confSum += p?.confidence ?? 0;
-    minReviews = Math.min(minReviews, p?.reviews ?? 0);
+    const intervalDays = p?.intervalDays ?? 0;
+    intervalSum += intervalDays;
+    if (intervalDays < MASTERY_INTERVAL_THRESHOLD) allPastThreshold = false;
   }
-  const avgConfidence = confSum / levelCards.length;
   return {
-    avgConfidence,
-    minReviews,
-    mastered:
-      avgConfidence >= MASTERY_CONFIDENCE_THRESHOLD &&
-      minReviews >= MASTERY_MIN_REVIEWS,
+    avgIntervalDays: intervalSum / levelCards.length,
+    mastered: allPastThreshold,
   };
 }
 
@@ -152,17 +203,12 @@ export async function getLevels(userId: string): Promise<LevelSummary[]> {
     const levelCards = allCards.filter((c) => c.levelId === lvl.id);
     const total = levelCards.length;
     let masteredCount = 0;
-    let confSum = 0;
+    let intervalSum = 0;
     for (const c of levelCards) {
       const p = progressByCard.get(c.id);
-      const conf = p?.confidence ?? 0;
-      confSum += conf;
-      if (
-        conf >= MASTERY_CONFIDENCE_THRESHOLD &&
-        (p?.reviews ?? 0) >= MASTERY_MIN_REVIEWS
-      ) {
-        masteredCount++;
-      }
+      const intervalDays = p?.intervalDays ?? 0;
+      intervalSum += intervalDays;
+      if (intervalDays >= MASTERY_INTERVAL_THRESHOLD) masteredCount++;
     }
     return {
       id: lvl.id as LevelId,
@@ -172,7 +218,7 @@ export async function getLevels(userId: string): Promise<LevelSummary[]> {
       unlocked: unlockedIds.has(lvl.id),
       totalCards: total,
       masteredCards: masteredCount,
-      avgConfidence: total > 0 ? Number((confSum / total).toFixed(2)) : 0,
+      avgIntervalDays: total > 0 ? Number((intervalSum / total).toFixed(2)) : 0,
     };
   });
 }
@@ -196,13 +242,13 @@ export async function getLevelsPublic(): Promise<LevelSummary[]> {
     unlocked: true,
     totalCards: allCards.filter((c) => c.levelId === lvl.id).length,
     masteredCards: 0,
-    avgConfidence: 0,
+    avgIntervalDays: 0,
   }));
 }
 
 /**
- * Uniform-random card pick for guests (no session, so no confidence data to
- * weight by). Guests can browse any level but nothing is persisted.
+ * Uniform-random card pick for guests (no session, so no review history to
+ * schedule by). Guests can browse any level but nothing is persisted.
  */
 export async function getRandomCardForLevel(
   levelId: LevelId,
@@ -213,13 +259,14 @@ export async function getRandomCardForLevel(
     .where(eq(cards.levelId, levelId));
   if (levelCards.length === 0) return null;
   const picked = levelCards[Math.floor(Math.random() * levelCards.length)];
-  return { ...toCard(picked), confidence: 0, isReview: false };
+  return { ...toCard(picked), intervalDays: 0, repetitions: 0, isReview: false };
 }
 
 export async function getNextCard(
   userId: string,
   mode: PracticeMode,
   levelId?: LevelId,
+  pullAhead = false,
 ): Promise<CardWithProgress | null> {
   await ensureEntryLevelUnlocked(userId);
 
@@ -231,7 +278,6 @@ export async function getNextCard(
   if (unlockedIds.length === 0) return null;
 
   const orderedUnlocked = LEVEL_ORDER.filter((id) => unlockedIds.includes(id));
-  const currentLevelId = orderedUnlocked[orderedUnlocked.length - 1];
 
   const allProgress = await db
     .select()
@@ -239,17 +285,20 @@ export async function getNextCard(
     .where(eq(progress.userId, userId));
   const progressByCard = new Map(allProgress.map((p) => [p.cardId, p]));
 
+  const now = new Date();
+  const newCardsToday = countNewCardsToday(allProgress, now);
+
   if (mode === "level" && levelId) {
     if (!unlockedIds.includes(levelId)) return null;
     const levelCards = await db
       .select()
       .from(cards)
       .where(eq(cards.levelId, levelId));
-    return pickWeightedCard(
-      levelCards,
-      progressByCard,
-      levelId !== currentLevelId,
-    );
+    return pickFromPool(levelCards, progressByCard, now, {
+      pullAhead,
+      allowNewCards: true,
+      newCardsToday,
+    });
   }
 
   if (mode === "weak") {
@@ -257,41 +306,30 @@ export async function getNextCard(
       .select()
       .from(cards)
       .where(inArray(cards.levelId, orderedUnlocked));
-    // Only cards actually reviewed at least once — otherwise never-seen
-    // cards (confidence defaults to 0) would flood in as "weak".
+    // Only cards actually reviewed at least once and currently weak —
+    // never-seen cards aren't "weak", they're just new.
     const weak = unlockedCards.filter((c) => {
       const p = progressByCard.get(c.id);
-      return !!p && p.reviews > 0 && p.confidence < WEAK_CONFIDENCE_THRESHOLD;
+      return !!p && p.reviews > 0 && isWeak(p);
     });
-    return pickWeightedCard(weak, progressByCard, true);
+    return pickFromPool(weak, progressByCard, now, {
+      pullAhead,
+      allowNewCards: false,
+      newCardsToday,
+    });
   }
 
-  // auto mode
-  const currentLevelCards = await db
+  // auto mode: due reviews take priority across every unlocked level; only
+  // once nothing is due does a new card get introduced.
+  const allUnlockedCards = await db
     .select()
     .from(cards)
-    .where(eq(cards.levelId, currentLevelId));
-  const otherLevelIds = orderedUnlocked.filter((id) => id !== currentLevelId);
-  const otherCards =
-    otherLevelIds.length > 0
-      ? await db
-          .select()
-          .from(cards)
-          .where(inArray(cards.levelId, otherLevelIds))
-      : [];
-
-  const { mastered: currentMastered } = computeLevelMastery(
-    currentLevelCards,
-    progressByCard,
-  );
-  const useReviewPool =
-    otherCards.length > 0 &&
-    (currentMastered || Math.random() < REVIEW_POOL_CHANCE);
-
-  if (useReviewPool) {
-    return pickWeightedCard(otherCards, progressByCard, true);
-  }
-  return pickWeightedCard(currentLevelCards, progressByCard, false);
+    .where(inArray(cards.levelId, orderedUnlocked));
+  return pickFromPool(allUnlockedCards, progressByCard, now, {
+    pullAhead,
+    allowNewCards: true,
+    newCardsToday,
+  });
 }
 
 export async function checkLevelProgression(
@@ -342,30 +380,40 @@ export async function submitProgress(
     .where(and(eq(progress.userId, userId), eq(progress.cardId, cardId)))
     .limit(1);
 
-  const delta = SCORE_DELTAS[score] ?? 0;
-  const currentConfidence = existing?.confidence ?? 0;
-  const newConfidence = Math.min(
-    5,
-    Math.max(0, Number((currentConfidence + delta).toFixed(2))),
-  );
+  const prevState: Sm2State = existing
+    ? {
+        easeFactor: existing.easeFactor,
+        intervalDays: existing.intervalDays,
+        repetitions: existing.repetitions,
+      }
+    : { easeFactor: DEFAULT_EASE_FACTOR, intervalDays: 0, repetitions: 0 };
+
+  const now = new Date();
+  const updated = applySm2Update(prevState, score, now);
   const newReviews = (existing?.reviews ?? 0) + 1;
 
   if (existing) {
     await db
       .update(progress)
       .set({
-        confidence: newConfidence,
+        easeFactor: updated.easeFactor,
+        intervalDays: updated.intervalDays,
+        repetitions: updated.repetitions,
+        nextReviewAt: updated.nextReviewAt,
         reviews: newReviews,
-        lastReviewed: new Date(),
+        lastReviewed: now,
       })
       .where(and(eq(progress.userId, userId), eq(progress.cardId, cardId)));
   } else {
     await db.insert(progress).values({
       userId,
       cardId,
-      confidence: newConfidence,
+      easeFactor: updated.easeFactor,
+      intervalDays: updated.intervalDays,
+      repetitions: updated.repetitions,
+      nextReviewAt: updated.nextReviewAt,
       reviews: newReviews,
-      lastReviewed: new Date(),
+      lastReviewed: now,
     });
   }
 
@@ -375,7 +423,10 @@ export async function submitProgress(
   );
 
   return {
-    confidence: newConfidence,
+    easeFactor: updated.easeFactor,
+    intervalDays: updated.intervalDays,
+    repetitions: updated.repetitions,
+    nextReviewAt: updated.nextReviewAt.toISOString(),
     reviews: newReviews,
     leveledUp,
     newLevelId,
@@ -405,18 +456,17 @@ export async function getWeakCards(
     db.select().from(cards).where(inArray(cards.levelId, unlockedIds)),
     db.select().from(progress).where(eq(progress.userId, userId)),
   ]);
-  const progressByCard = new Map(allProgress.map((p) => [p.cardId, p]));
   const cardsById = new Map(unlockedCards.map((c) => [c.id, c]));
 
-  // Only cards the user has actually reviewed — otherwise every never-seen
-  // card ties at confidence 0 and "weakest" is meaningless noise.
+  // Only cards the user has actually reviewed and that are currently weak.
   return allProgress
-    .filter((p) => p.reviews > 0 && cardsById.has(p.cardId))
+    .filter((p) => p.reviews > 0 && isWeak(p) && cardsById.has(p.cardId))
     .map((p) => ({
       ...toCard(cardsById.get(p.cardId)!),
-      confidence: p.confidence,
+      easeFactor: p.easeFactor,
+      intervalDays: p.intervalDays,
       reviews: p.reviews,
     }))
-    .sort((a, b) => a.confidence - b.confidence)
+    .sort((a, b) => a.easeFactor - b.easeFactor)
     .slice(0, limit);
 }

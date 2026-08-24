@@ -22,6 +22,20 @@
       "when": 1787579116552,
       "tag": "0002_minor_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787598780453,
+      "tag": "0003_add_sm2_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787599601113,
+      "tag": "0004_drop_confidence",
+      "breakpoints": true
     }
   ]
 }

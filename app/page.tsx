@@ -54,12 +54,13 @@ export default function PracticePage() {
   }, []);
 
   const loadCard = useCallback(
-    async (nextMode: PracticeMode, levelId?: string) => {
+    async (nextMode: PracticeMode, levelId?: string, pullAhead = false) => {
       setLoading(true);
       setSelectedScore(null);
       setRevealed(false);
       const params = new URLSearchParams({ mode: nextMode });
       if (levelId) params.set("levelId", levelId);
+      if (pullAhead) params.set("pullAhead", "true");
       const res = await fetch(`/api/cards/next?${params.toString()}`);
       const data = await res.json();
       setCard(data.card ?? null);
@@ -118,7 +119,13 @@ export default function PracticePage() {
     const result = await res.json();
 
     setCard((prev) =>
-      prev ? { ...prev, confidence: result.confidence } : prev,
+      prev
+        ? {
+            ...prev,
+            intervalDays: result.intervalDays,
+            repetitions: result.repetitions,
+          }
+        : prev,
     );
 
     if (result.leveledUp && result.newLevelId) {
@@ -127,7 +134,7 @@ export default function PracticePage() {
       );
       loadLevels();
     } else {
-      showToast(`Mastery Level: ${Math.round(result.confidence)}/5`);
+      showToast(`Next review in ${result.intervalDays} day${result.intervalDays === 1 ? "" : "s"}`);
     }
 
     // Brief pause so the selected score is visible before advancing.
@@ -208,6 +215,8 @@ export default function PracticePage() {
           loading={loading}
           revealed={revealed}
           onReveal={() => setRevealed(true)}
+          caughtUp={isAuthed && !loading && !card}
+          onPullAhead={() => loadCard(mode, selectedLevelId, true)}
         />
 
         <div className="px-6 pb-6 md:px-8 md:pb-8">

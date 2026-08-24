@@ -26,12 +26,16 @@ export interface Card {
 }
 
 export interface CardWithProgress extends Card {
-  confidence: number;
+  intervalDays: number;
+  repetitions: number;
   isReview: boolean;
 }
 
 export interface ProgressResult {
-  confidence: number;
+  easeFactor: number;
+  intervalDays: number;
+  repetitions: number;
+  nextReviewAt: string;
   reviews: number;
   leveledUp: boolean;
   newLevelId: LevelId | null;
@@ -45,10 +49,11 @@ export interface LevelSummary {
   unlocked: boolean;
   totalCards: number;
   masteredCards: number;
-  avgConfidence: number;
+  avgIntervalDays: number;
 }
 
 export interface WeakCard extends Card {
-  confidence: number;
+  easeFactor: number;
+  intervalDays: number;
   reviews: number;
 }

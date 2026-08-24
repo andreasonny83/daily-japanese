@@ -35,7 +35,7 @@ export function WeakCardsList({ cards }: { cards: WeakCard[] }) {
               <span className="ml-2 text-gray-400">{c.english}</span>
             </div>
             <span className="text-xs font-semibold text-gray-500">
-              {c.confidence.toFixed(1)}/5
+              {c.intervalDays}d
             </span>
           </li>
         ))}

@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
   const mode = VALID_MODES.includes(modeParam as PracticeMode)
     ? (modeParam as PracticeMode)
     : "auto";
+  const pullAhead = searchParams.get("pullAhead") === "true";
 
-  const card = await getNextCard(userId, mode, levelId);
+  const card = await getNextCard(userId, mode, levelId, pullAhead);
   return NextResponse.json({ card });
 }

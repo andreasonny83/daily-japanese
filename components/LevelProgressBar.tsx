@@ -28,13 +28,13 @@ export function LevelProgressBar({ level }: { level: LevelSummary }) {
             <span>
               {level.masteredCards}/{level.totalCards} mastered
             </span>
-            <span>avg {level.avgConfidence.toFixed(1)}/5</span>
+            <span>avg {level.avgIntervalDays.toFixed(1)}d interval</span>
           </div>
         </>
       ) : (
         <p className="text-[11px] text-gray-400">
-          Unlock by mastering the previous level (avg confidence ≥ 4/5, each
-          card reviewed ≥ 2x).
+          Unlock by mastering the previous level (every card reaches a
+          21-day review interval).
         </p>
       )}
     </div>

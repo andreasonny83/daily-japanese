@@ -9,11 +9,15 @@ export function FlashCard({
   loading,
   revealed,
   onReveal,
+  caughtUp = false,
+  onPullAhead,
 }: {
   card: CardWithProgress | null;
   loading: boolean;
   revealed: boolean;
   onReveal: () => void;
+  caughtUp?: boolean;
+  onPullAhead?: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playState, setPlayState] = useState<"idle" | "playing" | "error">(
@@ -69,6 +73,25 @@ export function FlashCard({
         ? "Error"
         : "Listen";
 
+  if (!loading && !card && caughtUp) {
+    return (
+      <div className="w-full p-6 text-center md:p-8">
+        <p className="mb-3 text-sm text-gray-500">
+          <i className="fas fa-check-circle mr-1 text-green-500" />
+          All caught up! Nothing due right now.
+        </p>
+        {onPullAhead && (
+          <button
+            onClick={onPullAhead}
+            className="rounded-full border border-gray-200 bg-gray-50 px-4 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
+          >
+            Review early anyway
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (!loading && !card) {
     return (
       <div className="w-full p-6 text-center md:p-8">
@@ -86,7 +109,7 @@ export function FlashCard({
           {card && (
             <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600 md:text-xs">
               <i className="fas fa-brain mr-1 text-purple-400" />
-              {card.confidence > 0 ? `${Math.round(card.confidence)}/5` : "New"}
+              {card.intervalDays > 0 ? `${card.intervalDays}d` : "New"}
             </span>
           )}
           {card?.isReview && (

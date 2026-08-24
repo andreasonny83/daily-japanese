@@ -39,9 +39,12 @@ export const progress = pgTable(
     cardId: text("card_id")
       .notNull()
       .references(() => cards.id),
-    confidence: real("confidence").notNull().default(0),
     reviews: integer("reviews").notNull().default(0),
     lastReviewed: timestamp("last_reviewed", { mode: "date" }),
+    easeFactor: real("ease_factor").notNull().default(2.5),
+    intervalDays: integer("interval_days").notNull().default(0),
+    repetitions: integer("repetitions").notNull().default(0),
+    nextReviewAt: timestamp("next_review_at", { mode: "date" }),
   },
   (t) => ({
     userCardUnique: uniqueIndex("progress_user_card_unique").on(
