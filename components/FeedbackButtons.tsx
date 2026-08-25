@@ -42,6 +42,7 @@ export function FeedbackButtons({
             <button
               key={score}
               disabled={disabled || selectedScore !== null}
+              aria-pressed={isSelected}
               onClick={() => onSelect(score)}
               className={`flex flex-col items-center justify-center rounded-lg border px-1 py-1.5 font-bold transition-all duration-200 will-change-transform ${COLOR_CLASSES[color]} ${
                 isSelected
@@ -58,9 +59,10 @@ export function FeedbackButtons({
         })}
       </div>
       <p className="mt-2 text-center text-[10px] text-gray-400">
-        Tip: press <kbd className="rounded border border-gray-300 bg-gray-50 px-1">0</kbd>–
-        <kbd className="rounded border border-gray-300 bg-gray-50 px-1">5</kbd> on your
-        keyboard
+        Tip: press{" "}
+        <kbd className="rounded border border-gray-300 bg-gray-50 px-1">0</kbd>–
+        <kbd className="rounded border border-gray-300 bg-gray-50 px-1">5</kbd>{" "}
+        on your keyboard
       </p>
     </div>
   );

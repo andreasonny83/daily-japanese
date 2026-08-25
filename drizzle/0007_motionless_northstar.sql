@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "cards_level_id_idx" ON "cards" USING btree ("level_id");

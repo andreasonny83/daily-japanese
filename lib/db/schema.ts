@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   pgTable,
   real,
@@ -15,19 +16,25 @@ export const levels = pgTable("levels", {
   description: text("description").notNull(),
 });
 
-export const cards = pgTable("cards", {
-  id: text("id").primaryKey(),
-  levelId: text("level_id")
-    .notNull()
-    .references(() => levels.id),
-  type: text("type").notNull(),
-  category: text("category"),
-  grammarPoint: text("grammar_point"),
-  kanji: text("kanji").notNull(),
-  kana: text("kana").notNull(),
-  romaji: text("romaji").notNull(),
-  english: text("english").notNull(),
-});
+export const cards = pgTable(
+  "cards",
+  {
+    id: text("id").primaryKey(),
+    levelId: text("level_id")
+      .notNull()
+      .references(() => levels.id),
+    type: text("type").notNull(),
+    category: text("category"),
+    grammarPoint: text("grammar_point"),
+    kanji: text("kanji").notNull(),
+    kana: text("kana").notNull(),
+    romaji: text("romaji").notNull(),
+    english: text("english").notNull(),
+  },
+  (t) => ({
+    levelIdIdx: index("cards_level_id_idx").on(t.levelId),
+  }),
+);
 
 export const progress = pgTable(
   "progress",

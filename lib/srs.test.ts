@@ -7,7 +7,11 @@ import {
   MIN_EASE_FACTOR,
 } from "./srs";
 
-const NEW_CARD = { easeFactor: DEFAULT_EASE_FACTOR, intervalDays: 0, repetitions: 0 };
+const NEW_CARD = {
+  easeFactor: DEFAULT_EASE_FACTOR,
+  intervalDays: 0,
+  repetitions: 0,
+};
 
 describe("applySm2Update", () => {
   test("first review with quality 5 sets interval to 1 day and bumps ease", () => {
@@ -22,7 +26,11 @@ describe("applySm2Update", () => {
 
   test("second consecutive good review sets interval to 6 days", () => {
     const now = new Date("2026-01-02T00:00:00.000Z");
-    const afterFirst = applySm2Update(NEW_CARD, 5, new Date("2026-01-01T00:00:00.000Z"));
+    const afterFirst = applySm2Update(
+      NEW_CARD,
+      5,
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
 
     const result = applySm2Update(afterFirst, 5, now);
 
@@ -31,10 +39,18 @@ describe("applySm2Update", () => {
   });
 
   test("third consecutive good review multiplies previous interval by ease factor", () => {
-    const day1 = applySm2Update(NEW_CARD, 5, new Date("2026-01-01T00:00:00.000Z"));
+    const day1 = applySm2Update(
+      NEW_CARD,
+      5,
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
     const day2 = applySm2Update(day1, 5, new Date("2026-01-02T00:00:00.000Z"));
 
-    const result = applySm2Update(day2, 5, new Date("2026-01-08T00:00:00.000Z"));
+    const result = applySm2Update(
+      day2,
+      5,
+      new Date("2026-01-08T00:00:00.000Z"),
+    );
 
     // day2.intervalDays=6, day2.easeFactor≈2.7 → new ease ≈2.8 → round(6*2.8)=17
     expect(result.repetitions).toBe(3);
@@ -43,11 +59,23 @@ describe("applySm2Update", () => {
   });
 
   test("lapse (quality < 3) resets repetitions and interval to 1 day", () => {
-    const day1 = applySm2Update(NEW_CARD, 5, new Date("2026-01-01T00:00:00.000Z"));
+    const day1 = applySm2Update(
+      NEW_CARD,
+      5,
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
     const day2 = applySm2Update(day1, 5, new Date("2026-01-02T00:00:00.000Z"));
-    const matured = applySm2Update(day2, 5, new Date("2026-01-08T00:00:00.000Z"));
+    const matured = applySm2Update(
+      day2,
+      5,
+      new Date("2026-01-08T00:00:00.000Z"),
+    );
 
-    const result = applySm2Update(matured, 0, new Date("2026-02-01T00:00:00.000Z"));
+    const result = applySm2Update(
+      matured,
+      0,
+      new Date("2026-02-01T00:00:00.000Z"),
+    );
 
     expect(result.repetitions).toBe(0);
     expect(result.intervalDays).toBe(1);
@@ -81,7 +109,11 @@ describe("applySm2Update", () => {
     const now = new Date("2026-01-01T00:00:00.000Z");
     const afterFail = applySm2Update(NEW_CARD, 0, now);
 
-    const result = applySm2Update(afterFail, 5, new Date("2026-01-01T00:10:00.000Z"));
+    const result = applySm2Update(
+      afterFail,
+      5,
+      new Date("2026-01-01T00:10:00.000Z"),
+    );
 
     expect(result.repetitions).toBe(1);
     expect(result.intervalDays).toBe(1);

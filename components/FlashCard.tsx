@@ -2,22 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { formatNextAvailable } from "@/lib/format";
 import type { CardWithProgress } from "@/types";
-
-function formatNextAvailable(nextAvailableAt: string): string {
-  const diffMs = new Date(nextAvailableAt).getTime() - Date.now();
-  if (diffMs <= 60 * 1000) return "You can continue in under a minute";
-  if (diffMs < 60 * 60 * 1000) {
-    const minutes = Math.round(diffMs / 60000);
-    return `You can continue in ${minutes} minute${minutes === 1 ? "" : "s"}`;
-  }
-  if (diffMs < 24 * 60 * 60 * 1000) {
-    const hours = Math.round(diffMs / (60 * 60 * 1000));
-    return `You can continue in ${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  const days = Math.round(diffMs / (24 * 60 * 60 * 1000));
-  return `You can continue in ${days} day${days === 1 ? "" : "s"}`;
-}
 
 export function FlashCard({
   card,
@@ -95,7 +81,8 @@ export function FlashCard({
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== " " || e.repeat) return;
       const target = e.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+        return;
       e.preventDefault();
       handleReveal();
     }
@@ -228,12 +215,13 @@ export function FlashCard({
             </p>
             <button
               onClick={handlePlayClick}
+              aria-label={`${playLabel} pronunciation`}
               className="mt-1 inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 shadow-sm transition-colors hover:bg-red-100"
             >
               <i
                 className={`fas ${playState === "playing" ? "fa-pause" : "fa-volume-up"}`}
               />
-              <span>{playLabel}</span>
+              <span aria-live="polite">{playLabel}</span>
             </button>
           </div>
 

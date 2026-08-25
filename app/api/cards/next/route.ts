@@ -6,9 +6,14 @@ import {
   getNextCard,
   getRandomCardForLevel,
 } from "@/lib/db/queries";
-import { LEVEL_ORDER, type LevelId, type PracticeMode } from "@/types";
+import {
+  LEVEL_ORDER,
+  VALID_MODES,
+  type LevelId,
+  type PracticeMode,
+} from "@/types";
 
-const VALID_MODES: PracticeMode[] = ["auto", "level", "weak", "review"];
+const MAX_REQUEUE_IDS = 10;
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -37,7 +42,7 @@ export async function GET(request: NextRequest) {
   const pullAhead = searchParams.get("pullAhead") === "true";
   const requeueIdsParam = searchParams.get("requeueIds");
   const requeueCardIds = requeueIdsParam
-    ? requeueIdsParam.split(",").filter(Boolean)
+    ? requeueIdsParam.split(",").filter(Boolean).slice(0, MAX_REQUEUE_IDS)
     : undefined;
 
   const card = await getNextCard(

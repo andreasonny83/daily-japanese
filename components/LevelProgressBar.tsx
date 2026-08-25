@@ -33,8 +33,8 @@ export function LevelProgressBar({ level }: { level: LevelSummary }) {
         </>
       ) : (
         <p className="text-[11px] text-gray-400">
-          Unlock by mastering the previous level (every card reaches a
-          21-day review interval).
+          Unlock by mastering the previous level (every card reaches a 21-day
+          review interval).
         </p>
       )}
     </div>

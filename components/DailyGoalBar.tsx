@@ -9,7 +9,8 @@ export function DailyGoalBar({
   label?: string;
   doneLabel?: string;
 }) {
-  const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+  const pct =
+    total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
   const done = completed >= total;
 
   return (
@@ -29,7 +30,13 @@ export function DailyGoalBar({
           {Math.min(completed, total)}/{total}
         </span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+      <div
+        role="progressbar"
+        aria-valuenow={Math.min(completed, total)}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
+      >
         <div
           className={`h-full transition-all ${done ? "bg-green-500" : "bg-red-500"}`}
           style={{ width: `${pct}%` }}

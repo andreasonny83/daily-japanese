@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/session";
-import { getLevels, getLevelsPublic, getWeakCards } from "@/lib/db/queries";
+import {
+  getLevels,
+  getLevelsPublic,
+  getWeakCards,
+  WEAK_CARDS_LIST_LIMIT,
+} from "@/lib/db/queries";
 
 export async function GET() {
   const userId = await getCurrentUserId();
@@ -13,7 +18,7 @@ export async function GET() {
 
   const [levels, weakCards] = await Promise.all([
     getLevels(userId),
-    getWeakCards(userId, 10),
+    getWeakCards(userId, WEAK_CARDS_LIST_LIMIT),
   ]);
   return NextResponse.json({ levels, weakCards });
 }

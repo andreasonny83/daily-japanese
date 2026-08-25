@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Toast } from "@/components/Toast";
 import { authClient } from "@/lib/auth/client";
+import { useToast } from "@/lib/hooks/useToast";
 
 type Session = {
   id: string;
@@ -35,14 +36,7 @@ export default function AccountSecurityPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
 
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
-
-  function showToast(message: string) {
-    setToastMsg(message);
-    setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 3000);
-  }
+  const { message: toastMsg, visible: toastVisible, showToast } = useToast();
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);

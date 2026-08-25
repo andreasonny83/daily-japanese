@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUserId } from "@/lib/auth/session";
+import { requireUserId } from "@/lib/auth/requireUserId";
 import { getDailyNewCardProgress } from "@/lib/db/queries";
 
 export async function GET() {
-  const userId = await getCurrentUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-  }
+  const userId = await requireUserId();
+  if (userId instanceof NextResponse) return userId;
 
   const progress = await getDailyNewCardProgress(userId);
   return NextResponse.json(progress);

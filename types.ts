@@ -13,6 +13,8 @@ export type CardType = "vocab" | "sentence";
 
 export type PracticeMode = "auto" | "level" | "weak" | "review";
 
+export const VALID_MODES: PracticeMode[] = ["auto", "level", "weak", "review"];
+
 export interface Card {
   id: string;
   levelId: LevelId;

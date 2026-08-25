@@ -2,28 +2,32 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DeleteAccountModal } from "@/components/DeleteAccountModal";
 import { Toast } from "@/components/Toast";
 import { authClient } from "@/lib/auth/client";
+import { useToast } from "@/lib/hooks/useToast";
 
 export default function AccountSettingsPage() {
   const router = useRouter();
   const { data: session, isPending: sessionLoading } = authClient.useSession();
   const isAuthed = !!session?.user;
 
-  const [name, setName] = useState(session?.user.name ?? "");
+  const [name, setName] = useState("");
+  const hasEditedRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
+  const { message: toastMsg, visible: toastVisible, showToast } = useToast();
 
-  function showToast(message: string) {
-    setToastMsg(message);
-    setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 3000);
-  }
+  // The session resolves asynchronously (useSession() starts pending with no
+  // data), so the display name can't come from a useState initializer alone
+  // — sync it once it loads, but don't clobber text the user's already typing.
+  useEffect(() => {
+    if (session?.user.name && !hasEditedRef.current) {
+      setName(session.user.name);
+    }
+  }, [session]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -36,9 +40,7 @@ export default function AccountSettingsPage() {
 
   async function handleDeleteAccount(password: string) {
     setShowDeleteModal(false);
-    const { error } = await authClient.deleteUser(
-      password ? { password } : {},
-    );
+    const { error } = await authClient.deleteUser(password ? { password } : {});
     if (error) {
       showToast(error.message ?? "Couldn't delete your account");
       return;
@@ -75,13 +77,19 @@ export default function AccountSettingsPage() {
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-red-500 text-xl font-semibold text-white">
               {image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={image} alt="" className="h-full w-full object-cover" />
+                <img
+                  src={image}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 initial
               )}
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Account Settings</h1>
+              <h1 className="text-xl font-bold text-gray-900">
+                Account Settings
+              </h1>
               <p className="text-sm text-gray-500">{email}</p>
             </div>
           </div>
@@ -98,7 +106,10 @@ export default function AccountSettingsPage() {
                 id="name"
                 type="text"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  hasEditedRef.current = true;
+                  setName(e.target.value);
+                }}
                 className="w-full rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm text-gray-900 shadow-sm focus:border-red-500 focus:ring-red-500"
               />
             </div>

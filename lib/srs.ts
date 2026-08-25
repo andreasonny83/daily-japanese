@@ -23,8 +23,15 @@ export function applySm2Update(
   if (quality < 3 && neverGraduated) {
     // Still in the initial learning phase: resurface soon, same session,
     // without touching ease — Anki doesn't adjust ease during learning.
-    const nextReviewAt = new Date(now.getTime() + LEARNING_STEP_MINUTES * 60 * 1000);
-    return { easeFactor: prev.easeFactor, intervalDays: 0, repetitions: 0, nextReviewAt };
+    const nextReviewAt = new Date(
+      now.getTime() + LEARNING_STEP_MINUTES * 60 * 1000,
+    );
+    return {
+      easeFactor: prev.easeFactor,
+      intervalDays: 0,
+      repetitions: 0,
+      nextReviewAt,
+    };
   }
 
   const easeDelta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
@@ -47,7 +54,9 @@ export function applySm2Update(
     }
   }
 
-  const nextReviewAt = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const nextReviewAt = new Date(
+    now.getTime() + intervalDays * 24 * 60 * 60 * 1000,
+  );
 
   return { easeFactor, intervalDays, repetitions, nextReviewAt };
 }

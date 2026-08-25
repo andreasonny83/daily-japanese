@@ -10,6 +10,8 @@ import { FlashCard } from "@/components/FlashCard";
 import { ResetModal } from "@/components/ResetModal";
 import { Toast } from "@/components/Toast";
 import { authClient } from "@/lib/auth/client";
+import { formatNextReview } from "@/lib/format";
+import { useToast } from "@/lib/hooks/useToast";
 import { PASSING_QUALITY } from "@/lib/srs";
 import {
   LEVEL_ORDER,
@@ -18,17 +20,9 @@ import {
   type PracticeMode,
 } from "@/types";
 
-function formatNextReview(nextReviewAt: string, intervalDays: number): string {
-  const diffMs = new Date(nextReviewAt).getTime() - Date.now();
-  if (diffMs < 60 * 60 * 1000) {
-    const minutes = Math.max(1, Math.round(diffMs / 60000));
-    return `Review again in ${minutes} minute${minutes === 1 ? "" : "s"}`;
-  }
-  if (intervalDays === 1) return "Next review: tomorrow";
-  return `Next review in ${intervalDays} days`;
-}
-
 const SESSION_GOAL_CARDS = 20;
+// Brief pause so the selected score is visible before advancing to the next card.
+const RATE_ADVANCE_DELAY_MS = 600;
 
 const LEVEL_LABELS: Record<string, string> = {
   "vocab-basics": "Vocabulary Basics",
@@ -78,9 +72,8 @@ function PracticePageContent() {
   // instead of letting pull-ahead run indefinitely.
   const [sessionComplete, setSessionComplete] = useState(false);
 
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const { message: toastMsg, visible: toastVisible, showToast } = useToast();
 
   // Cards that failed on their first attempt this session get forced back
   // into rotation at least twice more (cardId -> remaining reappearances),
@@ -90,12 +83,6 @@ function PracticePageContent() {
   // Tracks the most-recently-shown card id so loadCard can ask the server
   // to exclude it, preventing the same card from repeating back-to-back.
   const lastCardIdRef = useRef<string | null>(null);
-
-  const showToast = useCallback((message: string) => {
-    setToastMsg(message);
-    setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 3000);
-  }, []);
 
   const loadCard = useCallback(
     async (nextMode: PracticeMode, levelId?: string, pullAhead = false) => {
@@ -115,6 +102,10 @@ function PracticePageContent() {
       }
 
       const res = await fetch(`/api/cards/next?${params.toString()}`);
+      if (!res.ok) {
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       const nextCard: CardWithProgress | null = data.card ?? null;
       setCard(nextCard);
@@ -132,6 +123,7 @@ function PracticePageContent() {
 
   const loadLevels = useCallback(async () => {
     const res = await fetch("/api/levels");
+    if (!res.ok) return;
     const data = await res.json();
     setLevels(data.levels ?? []);
   }, []);
@@ -183,6 +175,7 @@ function PracticePageContent() {
   async function handleModeChange(value: string) {
     setPullAheadActive(false);
     setSessionComplete(false);
+    setSessionReviewed(0);
     if (value === "auto" || value === "weak" || value === "review") {
       setMode(value);
       setSelectedLevelId(undefined);
@@ -210,6 +203,11 @@ function PracticePageContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cardId: card.id, score, mode }),
     });
+    if (!res.ok) {
+      setSelectedScore(null);
+      showToast("Something went wrong — try again");
+      return;
+    }
     const result = await res.json();
     setSessionReviewed(newSessionCount);
 
@@ -233,7 +231,10 @@ function PracticePageContent() {
           }
         : prev,
     );
-    setDailyGoal({ completed: result.newCardsToday, total: result.newCardsCap });
+    setDailyGoal({
+      completed: result.newCardsToday,
+      total: result.newCardsCap,
+    });
 
     if (result.leveledUp && result.newLevelId) {
       showToast(
@@ -248,12 +249,14 @@ function PracticePageContent() {
       setTimeout(() => {
         setCard(null);
         setSessionComplete(true);
-      }, 600);
+      }, RATE_ADVANCE_DELAY_MS);
       return;
     }
 
-    // Brief pause so the selected score is visible before advancing.
-    setTimeout(() => loadCard(mode, selectedLevelId, pullAheadActive), 600);
+    setTimeout(
+      () => loadCard(mode, selectedLevelId, pullAheadActive),
+      RATE_ADVANCE_DELAY_MS,
+    );
   }
 
   function handleSkip() {
@@ -271,7 +274,8 @@ function PracticePageContent() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+        return;
       if (!/^[0-5]$/.test(e.key)) return;
       handleRate(Number(e.key));
     }
@@ -282,7 +286,14 @@ function PracticePageContent() {
 
   async function handleResetConfirm() {
     setShowResetModal(false);
-    await fetch("/api/progress/reset", { method: "POST" });
+    const res = await fetch("/api/progress/reset", {
+      method: "POST",
+      headers: { "X-Confirm-Reset": "1" },
+    });
+    if (!res.ok) {
+      showToast("Reset failed — try again");
+      return;
+    }
     showToast("Progress reset successfully");
     await loadLevels();
     await loadDailyGoal();
@@ -290,6 +301,7 @@ function PracticePageContent() {
     setSelectedLevelId(undefined);
     setPullAheadActive(false);
     setSessionComplete(false);
+    setSessionReviewed(0);
     await loadCard("auto");
   }
 
@@ -358,7 +370,10 @@ function PracticePageContent() {
               doneLabel="Session goal reached"
             />
           ) : (
-            <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
+            <DailyGoalBar
+              completed={dailyGoal.completed}
+              total={dailyGoal.total}
+            />
           ))}
 
         <FlashCard
