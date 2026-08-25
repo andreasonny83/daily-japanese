@@ -29,6 +29,7 @@ export interface CardWithProgress extends Card {
   intervalDays: number;
   repetitions: number;
   isReview: boolean;
+  accuracy: number | null;
 }
 
 export interface ProgressResult {
@@ -58,4 +59,5 @@ export interface WeakCard extends Card {
   easeFactor: number;
   intervalDays: number;
   reviews: number;
+  accuracy: number | null;
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { DailyGoalBar } from "@/components/DailyGoalBar";
 import { FeedbackButtons } from "@/components/FeedbackButtons";
@@ -16,6 +17,16 @@ import {
   type PracticeMode,
 } from "@/types";
 
+function formatNextReview(nextReviewAt: string, intervalDays: number): string {
+  const diffMs = new Date(nextReviewAt).getTime() - Date.now();
+  if (diffMs < 60 * 60 * 1000) {
+    const minutes = Math.max(1, Math.round(diffMs / 60000));
+    return `Review again in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  if (intervalDays === 1) return "Next review: tomorrow";
+  return `Next review in ${intervalDays} days`;
+}
+
 const LEVEL_LABELS: Record<string, string> = {
   "vocab-basics": "Vocabulary Basics",
   n5: "JLPT N5",
@@ -26,14 +37,19 @@ const LEVEL_LABELS: Record<string, string> = {
 };
 
 export default function PracticePage() {
+  return (
+    <Suspense fallback={null}>
+      <PracticePageContent />
+    </Suspense>
+  );
+}
+
+function PracticePageContent() {
   const { data: session, isPending: sessionLoading } = authClient.useSession();
   const isAuthed = !!session?.user;
+  const searchParams = useSearchParams();
 
-  const [mode, setMode] = useState<PracticeMode>(() => {
-    if (typeof window === "undefined") return "auto";
-    const initialMode = new URLSearchParams(window.location.search).get("mode");
-    return initialMode === "weak" ? "weak" : "auto";
-  });
+  const [mode, setMode] = useState<PracticeMode>("auto");
   const [selectedLevelId, setSelectedLevelId] = useState<string | undefined>(
     undefined,
   );
@@ -98,9 +114,11 @@ export default function PracticePage() {
 
     loadLevels();
     if (isAuthed) {
+      const initialMode = searchParams.get("mode") === "weak" ? "weak" : "auto";
       // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMode(initialMode);
       loadDailyGoal();
-      loadCard(mode);
+      loadCard(initialMode);
     } else {
       setMode("level");
       setSelectedLevelId(LEVEL_ORDER[0]);
@@ -108,6 +126,20 @@ export default function PracticePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading]);
+
+  // React to `?mode=weak` on later client-side navigations (e.g. from the
+  // "Review these" link on /progress), since the initial-load effect above
+  // only fires once and won't pick up a query-param change on its own.
+  const weakModeParam = searchParams.get("mode") === "weak";
+  useEffect(() => {
+    if (!hasLoadedInitial.current || !isAuthed || !weakModeParam) return;
+    if (mode === "weak") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMode("weak");
+    setSelectedLevelId(undefined);
+    loadCard("weak");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weakModeParam, isAuthed]);
 
   async function handleModeChange(value: string) {
     if (value === "auto" || value === "weak") {
@@ -149,7 +181,7 @@ export default function PracticePage() {
       );
       loadLevels();
     } else {
-      showToast(`Next review in ${result.intervalDays} day${result.intervalDays === 1 ? "" : "s"}`);
+      showToast(formatNextReview(result.nextReviewAt, result.intervalDays));
     }
 
     // Brief pause so the selected score is visible before advancing.
@@ -226,7 +258,7 @@ export default function PracticePage() {
           )}
         </div>
 
-        {isAuthed && dailyGoal && (
+        {isAuthed && mode !== "weak" && dailyGoal && (
           <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
         )}
 
@@ -235,8 +267,15 @@ export default function PracticePage() {
           loading={loading}
           revealed={revealed}
           onReveal={() => setRevealed(true)}
-          caughtUp={isAuthed && !loading && !card}
-          onPullAhead={() => loadCard(mode, selectedLevelId, true)}
+          caughtUp={isAuthed && !loading && !card && mode !== "weak"}
+          emptyMessage={
+            mode === "weak"
+              ? "No weak cards yet — keep practicing to build some up."
+              : undefined
+          }
+          onPullAhead={
+            mode === "weak" ? undefined : () => loadCard(mode, selectedLevelId, true)
+          }
         />
 
         <div className="px-6 pb-6 md:px-8 md:pb-8">

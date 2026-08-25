@@ -34,7 +34,10 @@ export function WeakCardsList({ cards }: { cards: WeakCard[] }) {
               </span>
               <span className="ml-2 text-gray-400">{c.english}</span>
             </div>
-            <span className="text-xs font-semibold text-gray-500">
+            <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+              {c.accuracy !== null && (
+                <span className="text-emerald-600">{c.accuracy}%</span>
+              )}
               {c.intervalDays}d
             </span>
           </li>

@@ -1,5 +1,6 @@
 export const DEFAULT_EASE_FACTOR = 2.5;
 export const MIN_EASE_FACTOR = 1.3;
+export const LEARNING_STEP_MINUTES = 10;
 
 export interface Sm2State {
   easeFactor: number;
@@ -17,6 +18,15 @@ export function applySm2Update(
   quality: number,
   now: Date,
 ): Sm2Result {
+  const neverGraduated = prev.repetitions === 0 && prev.intervalDays === 0;
+
+  if (quality < 3 && neverGraduated) {
+    // Still in the initial learning phase: resurface soon, same session,
+    // without touching ease — Anki doesn't adjust ease during learning.
+    const nextReviewAt = new Date(now.getTime() + LEARNING_STEP_MINUTES * 60 * 1000);
+    return { easeFactor: prev.easeFactor, intervalDays: 0, repetitions: 0, nextReviewAt };
+  }
+
   const easeDelta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
   const easeFactor = Math.max(MIN_EASE_FACTOR, prev.easeFactor + easeDelta);
 
@@ -40,4 +50,16 @@ export function applySm2Update(
   const nextReviewAt = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
 
   return { easeFactor, intervalDays, repetitions, nextReviewAt };
+}
+
+/** Quality threshold (matches SM-2's pass/fail split) above which a review counts as correct. */
+export const PASSING_QUALITY = 3;
+
+/** Percentage of reviews graded >= PASSING_QUALITY, rounded to the nearest whole percent. */
+export function computeAccuracy(
+  correctReviews: number,
+  reviews: number,
+): number | null {
+  if (reviews === 0) return null;
+  return Math.round((correctReviews / reviews) * 100);
 }

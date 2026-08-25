@@ -40,6 +40,7 @@ export const progress = pgTable(
       .notNull()
       .references(() => cards.id),
     reviews: integer("reviews").notNull().default(0),
+    correctReviews: integer("correct_reviews").notNull().default(0),
     lastReviewed: timestamp("last_reviewed", { mode: "date" }),
     easeFactor: real("ease_factor").notNull().default(2.5),
     intervalDays: integer("interval_days").notNull().default(0),

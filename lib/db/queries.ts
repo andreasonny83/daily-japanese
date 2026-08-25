@@ -13,14 +13,18 @@ import {
 
 import { db } from "./index";
 import { cards, levels, progress, userLevelState } from "./schema";
-import { applySm2Update, DEFAULT_EASE_FACTOR, type Sm2State } from "../srs";
+import {
+  applySm2Update,
+  computeAccuracy,
+  DEFAULT_EASE_FACTOR,
+  PASSING_QUALITY,
+  type Sm2State,
+} from "../srs";
 
 type CardRow = typeof cards.$inferSelect;
 type ProgressRow = typeof progress.$inferSelect;
 
 const MASTERY_INTERVAL_THRESHOLD = 21;
-const WEAK_EASE_THRESHOLD = 2.0;
-const WEAK_INTERVAL_THRESHOLD = 3;
 const NEW_CARDS_PER_DAY = 15;
 
 function toCard(row: CardRow): {
@@ -58,6 +62,7 @@ function toCardWithProgress(
     intervalDays: p?.intervalDays ?? 0,
     repetitions: p?.repetitions ?? 0,
     isReview,
+    accuracy: computeAccuracy(p?.correctReviews ?? 0, p?.reviews ?? 0),
   };
 }
 
@@ -69,8 +74,19 @@ function isNew(p: ProgressRow | undefined): boolean {
   return !p || !p.nextReviewAt;
 }
 
-function isWeak(p: ProgressRow): boolean {
-  return p.easeFactor <= WEAK_EASE_THRESHOLD || p.intervalDays < WEAK_INTERVAL_THRESHOLD;
+// Weak-card practice always surfaces the relatively weakest reviewed cards
+// you have — it doesn't gate on an absolute ease/interval cutoff, so it
+// never comes up empty just because nothing has crossed a fixed threshold.
+function pickWeakestCard(
+  reviewedCards: CardRow[],
+  progressByCard: Map<string, ProgressRow>,
+): CardRow | null {
+  if (reviewedCards.length === 0) return null;
+  const ranked = reviewedCards
+    .map((card) => ({ card, easeFactor: progressByCard.get(card.id)!.easeFactor }))
+    .sort((a, b) => a.easeFactor - b.easeFactor);
+  const topSlice = ranked.slice(0, Math.min(5, ranked.length));
+  return topSlice[Math.floor(Math.random() * topSlice.length)].card;
 }
 
 function pickRandom<T>(items: T[]): T | null {
@@ -259,7 +275,13 @@ export async function getRandomCardForLevel(
     .where(eq(cards.levelId, levelId));
   if (levelCards.length === 0) return null;
   const picked = levelCards[Math.floor(Math.random() * levelCards.length)];
-  return { ...toCard(picked), intervalDays: 0, repetitions: 0, isReview: false };
+  return {
+    ...toCard(picked),
+    intervalDays: 0,
+    repetitions: 0,
+    isReview: false,
+    accuracy: null,
+  };
 }
 
 export async function getNextCard(
@@ -306,17 +328,16 @@ export async function getNextCard(
       .select()
       .from(cards)
       .where(inArray(cards.levelId, orderedUnlocked));
-    // Only cards actually reviewed at least once and currently weak —
-    // never-seen cards aren't "weak", they're just new.
-    const weak = unlockedCards.filter((c) => {
+    // Only cards actually reviewed at least once — never-seen cards aren't
+    // "weak", they're just new. Weak-card review is a deliberate drill, not
+    // the spaced schedule: no due-date gate, no daily cap, always surfaces
+    // whichever reviewed cards are relatively weakest right now.
+    const reviewed = unlockedCards.filter((c) => {
       const p = progressByCard.get(c.id);
-      return !!p && p.reviews > 0 && isWeak(p);
+      return !!p && p.reviews > 0;
     });
-    return pickFromPool(weak, progressByCard, now, {
-      pullAhead,
-      allowNewCards: false,
-      newCardsToday,
-    });
+    const picked = pickWeakestCard(reviewed, progressByCard);
+    return picked ? toCardWithProgress(picked, progressByCard, true) : null;
   }
 
   // auto mode: due reviews take priority across every unlocked level; only
@@ -391,6 +412,8 @@ export async function submitProgress(
   const now = new Date();
   const updated = applySm2Update(prevState, score, now);
   const newReviews = (existing?.reviews ?? 0) + 1;
+  const newCorrectReviews =
+    (existing?.correctReviews ?? 0) + (score >= PASSING_QUALITY ? 1 : 0);
 
   if (existing) {
     await db
@@ -401,6 +424,7 @@ export async function submitProgress(
         repetitions: updated.repetitions,
         nextReviewAt: updated.nextReviewAt,
         reviews: newReviews,
+        correctReviews: newCorrectReviews,
         lastReviewed: now,
       })
       .where(and(eq(progress.userId, userId), eq(progress.cardId, cardId)));
@@ -413,6 +437,7 @@ export async function submitProgress(
       repetitions: updated.repetitions,
       nextReviewAt: updated.nextReviewAt,
       reviews: newReviews,
+      correctReviews: newCorrectReviews,
       lastReviewed: now,
     });
   }
@@ -478,14 +503,16 @@ export async function getWeakCards(
   ]);
   const cardsById = new Map(unlockedCards.map((c) => [c.id, c]));
 
-  // Only cards the user has actually reviewed and that are currently weak.
+  // Only cards the user has actually reviewed — ranked weakest-first below,
+  // not filtered against an absolute threshold (see pickWeakestCard).
   return allProgress
-    .filter((p) => p.reviews > 0 && isWeak(p) && cardsById.has(p.cardId))
+    .filter((p) => p.reviews > 0 && cardsById.has(p.cardId))
     .map((p) => ({
       ...toCard(cardsById.get(p.cardId)!),
       easeFactor: p.easeFactor,
       intervalDays: p.intervalDays,
       reviews: p.reviews,
+      accuracy: computeAccuracy(p.correctReviews, p.reviews),
     }))
     .sort((a, b) => a.easeFactor - b.easeFactor)
     .slice(0, limit);

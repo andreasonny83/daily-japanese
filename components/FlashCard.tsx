@@ -11,6 +11,7 @@ export function FlashCard({
   onReveal,
   caughtUp = false,
   onPullAhead,
+  emptyMessage,
 }: {
   card: CardWithProgress | null;
   loading: boolean;
@@ -18,6 +19,7 @@ export function FlashCard({
   onReveal: () => void;
   caughtUp?: boolean;
   onPullAhead?: () => void;
+  emptyMessage?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playState, setPlayState] = useState<"idle" | "playing" | "error">(
@@ -96,7 +98,7 @@ export function FlashCard({
     return (
       <div className="w-full p-6 text-center md:p-8">
         <p className="text-sm text-gray-500">
-          Nothing to show here yet. Try a different level or mode.
+          {emptyMessage ?? "Nothing to show here yet. Try a different level or mode."}
         </p>
       </div>
     );
@@ -110,6 +112,12 @@ export function FlashCard({
             <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600 md:text-xs">
               <i className="fas fa-brain mr-1 text-purple-400" />
               {card.intervalDays > 0 ? `${card.intervalDays}d` : "New"}
+            </span>
+          )}
+          {card?.accuracy !== null && card?.accuracy !== undefined && (
+            <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600 md:text-xs">
+              <i className="fas fa-bullseye mr-1 text-emerald-500" />
+              {card.accuracy}% accuracy
             </span>
           )}
           {card?.isReview && (
