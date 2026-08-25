@@ -4,6 +4,21 @@ import { useEffect, useRef, useState } from "react";
 
 import type { CardWithProgress } from "@/types";
 
+function formatNextAvailable(nextAvailableAt: string): string {
+  const diffMs = new Date(nextAvailableAt).getTime() - Date.now();
+  if (diffMs <= 60 * 1000) return "You can continue in under a minute";
+  if (diffMs < 60 * 60 * 1000) {
+    const minutes = Math.round(diffMs / 60000);
+    return `You can continue in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  if (diffMs < 24 * 60 * 60 * 1000) {
+    const hours = Math.round(diffMs / (60 * 60 * 1000));
+    return `You can continue in ${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const days = Math.round(diffMs / (24 * 60 * 60 * 1000));
+  return `You can continue in ${days} day${days === 1 ? "" : "s"}`;
+}
+
 export function FlashCard({
   card,
   loading,
@@ -12,6 +27,7 @@ export function FlashCard({
   caughtUp = false,
   onPullAhead,
   emptyMessage,
+  nextAvailableAt,
 }: {
   card: CardWithProgress | null;
   loading: boolean;
@@ -20,6 +36,7 @@ export function FlashCard({
   caughtUp?: boolean;
   onPullAhead?: () => void;
   emptyMessage?: string;
+  nextAvailableAt?: string | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playState, setPlayState] = useState<"idle" | "playing" | "error">(
@@ -82,6 +99,11 @@ export function FlashCard({
           <i className="fas fa-check-circle mr-1 text-green-500" />
           All caught up! Nothing due right now.
         </p>
+        {nextAvailableAt && (
+          <p className="mb-3 text-xs text-gray-400">
+            {formatNextAvailable(nextAvailableAt)}
+          </p>
+        )}
         {onPullAhead && (
           <button
             onClick={onPullAhead}
@@ -98,7 +120,8 @@ export function FlashCard({
     return (
       <div className="w-full p-6 text-center md:p-8">
         <p className="text-sm text-gray-500">
-          {emptyMessage ?? "Nothing to show here yet. Try a different level or mode."}
+          {emptyMessage ??
+            "Nothing to show here yet. Try a different level or mode."}
         </p>
       </div>
     );
@@ -133,12 +156,12 @@ export function FlashCard({
         </div>
       )}
 
-      <h2 className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:mb-3 md:text-xs">
+      <h2 className="mb-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:mb-3 md:text-xs">
         {card?.type === "vocab" ? "Word to translate" : "Sentence to translate"}
       </h2>
 
-      <div className="mb-5 flex justify-center">
-        <p className="min-h-[40px] text-center text-2xl font-bold leading-tight text-gray-900 md:text-3xl">
+      <div className="mb-5">
+        <p className="min-h-[40px] text-2xl font-bold leading-tight text-gray-900 md:text-3xl">
           {loading || !card ? (
             <span className="skeleton inline-block h-8 w-3/4 rounded bg-gray-200" />
           ) : (

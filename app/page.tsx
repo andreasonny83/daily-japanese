@@ -10,6 +10,7 @@ import { FlashCard } from "@/components/FlashCard";
 import { ResetModal } from "@/components/ResetModal";
 import { Toast } from "@/components/Toast";
 import { authClient } from "@/lib/auth/client";
+import { PASSING_QUALITY } from "@/lib/srs";
 import {
   LEVEL_ORDER,
   type CardWithProgress,
@@ -56,6 +57,7 @@ function PracticePageContent() {
   const [levels, setLevels] = useState<LevelSummary[]>([]);
 
   const [card, setCard] = useState<CardWithProgress | null>(null);
+  const [nextAvailableAt, setNextAvailableAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [revealed, setRevealed] = useState(false);
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
@@ -68,6 +70,12 @@ function PracticePageContent() {
   const [toastMsg, setToastMsg] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+
+  // Cards that failed on their first attempt this session get forced back
+  // into rotation at least twice more (cardId -> remaining reappearances),
+  // with a gap of at least one other card so the repeat isn't back-to-back.
+  const pendingRequeueRef = useRef<Map<string, number>>(new Map());
+  const requeueGapRef = useRef(0);
 
   const showToast = useCallback((message: string) => {
     setToastMsg(message);
@@ -83,10 +91,23 @@ function PracticePageContent() {
       const params = new URLSearchParams({ mode: nextMode });
       if (levelId) params.set("levelId", levelId);
       if (pullAhead) params.set("pullAhead", "true");
+
+      const requeueIds = [...pendingRequeueRef.current.keys()];
+      if (requeueIds.length > 0 && requeueGapRef.current >= 1) {
+        params.set("requeueIds", requeueIds.join(","));
+      }
+
       const res = await fetch(`/api/cards/next?${params.toString()}`);
       const data = await res.json();
-      setCard(data.card ?? null);
+      const nextCard: CardWithProgress | null = data.card ?? null;
+      setCard(nextCard);
+      setNextAvailableAt(data.nextAvailableAt ?? null);
       setLoading(false);
+
+      requeueGapRef.current =
+        nextCard && pendingRequeueRef.current.has(nextCard.id)
+          ? 0
+          : requeueGapRef.current + 1;
     },
     [],
   );
@@ -142,7 +163,7 @@ function PracticePageContent() {
   }, [weakModeParam, isAuthed]);
 
   async function handleModeChange(value: string) {
-    if (value === "auto" || value === "weak") {
+    if (value === "auto" || value === "weak" || value === "review") {
       setMode(value);
       setSelectedLevelId(undefined);
       await loadCard(value);
@@ -163,6 +184,17 @@ function PracticePageContent() {
       body: JSON.stringify({ cardId: card.id, score }),
     });
     const result = await res.json();
+
+    const wasPending = pendingRequeueRef.current.has(card.id);
+    if (wasPending) {
+      const remaining = pendingRequeueRef.current.get(card.id)! - 1;
+      if (remaining <= 0) pendingRequeueRef.current.delete(card.id);
+      else pendingRequeueRef.current.set(card.id, remaining);
+    } else if (score < PASSING_QUALITY && card.isReview === false) {
+      // First-attempt failure on a brand-new word: force it back into
+      // rotation at least twice more this session.
+      pendingRequeueRef.current.set(card.id, 2);
+    }
 
     setCard((prev) =>
       prev
@@ -234,6 +266,7 @@ function PracticePageContent() {
             >
               <option value="auto">Continue Learning</option>
               <option value="weak">Review Weak Cards</option>
+              <option value="review">Review All Studied Cards</option>
               {unlockedLevels.map((l) => (
                 <option key={l.id} value={l.id}>
                   Practice: {l.name}
@@ -258,7 +291,7 @@ function PracticePageContent() {
           )}
         </div>
 
-        {isAuthed && mode !== "weak" && dailyGoal && (
+        {isAuthed && mode !== "weak" && mode !== "review" && dailyGoal && (
           <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
         )}
 
@@ -267,14 +300,21 @@ function PracticePageContent() {
           loading={loading}
           revealed={revealed}
           onReveal={() => setRevealed(true)}
-          caughtUp={isAuthed && !loading && !card && mode !== "weak"}
+          caughtUp={
+            isAuthed && !loading && !card && mode !== "weak" && mode !== "review"
+          }
+          nextAvailableAt={nextAvailableAt}
           emptyMessage={
             mode === "weak"
               ? "No weak cards yet — keep practicing to build some up."
-              : undefined
+              : mode === "review"
+                ? "No cards reviewed yet — study some new words first."
+                : undefined
           }
           onPullAhead={
-            mode === "weak" ? undefined : () => loadCard(mode, selectedLevelId, true)
+            mode === "weak" || mode === "review"
+              ? undefined
+              : () => loadCard(mode, selectedLevelId, true)
           }
         />
 
@@ -299,15 +339,17 @@ function PracticePageContent() {
             </div>
           )}
 
-          <div className="mt-5 flex justify-center">
-            <button
-              onClick={handleSkip}
-              disabled={loading || !card}
-              className="flex items-center gap-1 text-sm font-medium text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Skip <i className="fas fa-forward" />
-            </button>
-          </div>
+          {card && (
+            <div className="mt-5 flex justify-center">
+              <button
+                onClick={handleSkip}
+                disabled={loading}
+                className="flex items-center gap-1 text-sm font-medium text-gray-400 transition-colors hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Skip <i className="fas fa-forward" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

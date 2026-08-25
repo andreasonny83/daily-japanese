@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/session";
-import { getNextCard, getRandomCardForLevel } from "@/lib/db/queries";
+import {
+  getNextAvailableAt,
+  getNextCard,
+  getRandomCardForLevel,
+} from "@/lib/db/queries";
 import { LEVEL_ORDER, type LevelId, type PracticeMode } from "@/types";
 
-const VALID_MODES: PracticeMode[] = ["auto", "level", "weak"];
+const VALID_MODES: PracticeMode[] = ["auto", "level", "weak", "review"];
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -27,7 +31,15 @@ export async function GET(request: NextRequest) {
     ? (modeParam as PracticeMode)
     : "auto";
   const pullAhead = searchParams.get("pullAhead") === "true";
+  const requeueIdsParam = searchParams.get("requeueIds");
+  const requeueCardIds = requeueIdsParam
+    ? requeueIdsParam.split(",").filter(Boolean)
+    : undefined;
 
-  const card = await getNextCard(userId, mode, levelId, pullAhead);
+  const card = await getNextCard(userId, mode, levelId, pullAhead, requeueCardIds);
+  if (!card && (mode === "auto" || mode === "level")) {
+    const nextAvailableAt = await getNextAvailableAt(userId);
+    return NextResponse.json({ card: null, nextAvailableAt });
+  }
   return NextResponse.json({ card });
 }

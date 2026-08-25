@@ -13,7 +13,7 @@ export async function GET() {
 
   const [levels, weakCards] = await Promise.all([
     getLevels(userId),
-    getWeakCards(userId, 20),
+    getWeakCards(userId, 10),
   ]);
   return NextResponse.json({ levels, weakCards });
 }

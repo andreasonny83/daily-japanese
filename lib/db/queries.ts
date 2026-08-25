@@ -26,6 +26,7 @@ type ProgressRow = typeof progress.$inferSelect;
 
 const MASTERY_INTERVAL_THRESHOLD = 21;
 const NEW_CARDS_PER_DAY = 15;
+const STRONG_ACCURACY_THRESHOLD = 80;
 
 function toCard(row: CardRow): {
   id: string;
@@ -92,6 +93,18 @@ function pickWeakestCard(
 function pickRandom<T>(items: T[]): T | null {
   if (items.length === 0) return null;
   return items[Math.floor(Math.random() * items.length)];
+}
+
+// Forces a same-session retry card back into rotation ahead of the normal
+// due/new pool logic — see app/page.tsx's pendingRequeueRef for how the
+// client decides which ids to send and when.
+function pickRequeuedCard(
+  pool: CardRow[],
+  requeueCardIds: string[] | undefined,
+): CardRow | null {
+  if (!requeueCardIds || requeueCardIds.length === 0) return null;
+  const candidates = pool.filter((c) => requeueCardIds.includes(c.id));
+  return pickRandom(candidates);
 }
 
 // Among due cards, favor the most overdue, with light randomization among
@@ -289,6 +302,7 @@ export async function getNextCard(
   mode: PracticeMode,
   levelId?: LevelId,
   pullAhead = false,
+  requeueCardIds?: string[],
 ): Promise<CardWithProgress | null> {
   await ensureEntryLevelUnlocked(userId);
 
@@ -316,6 +330,8 @@ export async function getNextCard(
       .select()
       .from(cards)
       .where(eq(cards.levelId, levelId));
+    const requeued = pickRequeuedCard(levelCards, requeueCardIds);
+    if (requeued) return toCardWithProgress(requeued, progressByCard, true);
     return pickFromPool(levelCards, progressByCard, now, {
       pullAhead,
       allowNewCards: true,
@@ -340,17 +356,76 @@ export async function getNextCard(
     return picked ? toCardWithProgress(picked, progressByCard, true) : null;
   }
 
+  if (mode === "review") {
+    const unlockedCards = await db
+      .select()
+      .from(cards)
+      .where(inArray(cards.levelId, orderedUnlocked));
+    // Any previously-studied card, not just the weakest ones — a broader
+    // drill pool than "weak", still excluding never-seen (new) cards.
+    const reviewed = unlockedCards.filter((c) => {
+      const p = progressByCard.get(c.id);
+      return !!p && p.reviews > 0;
+    });
+    const picked = pickRandom(reviewed);
+    return picked ? toCardWithProgress(picked, progressByCard, true) : null;
+  }
+
   // auto mode: due reviews take priority across every unlocked level; only
   // once nothing is due does a new card get introduced.
   const allUnlockedCards = await db
     .select()
     .from(cards)
     .where(inArray(cards.levelId, orderedUnlocked));
+  const requeued = pickRequeuedCard(allUnlockedCards, requeueCardIds);
+  if (requeued) return toCardWithProgress(requeued, progressByCard, true);
   return pickFromPool(allUnlockedCards, progressByCard, now, {
     pullAhead,
     allowNewCards: true,
     newCardsToday,
   });
+}
+
+/**
+ * When practice mode has nothing left to show (no due reviews, daily new-card
+ * cap reached or no new cards left), returns the earliest time something
+ * becomes available again — the soonest upcoming `nextReviewAt`, or tomorrow's
+ * cap reset if new cards are still waiting behind today's cap. Null means
+ * there's genuinely nothing left (e.g. everything mastered).
+ */
+export async function getNextAvailableAt(userId: string): Promise<string | null> {
+  const unlockedRows = await db
+    .select()
+    .from(userLevelState)
+    .where(eq(userLevelState.userId, userId));
+  const unlockedIds = unlockedRows.map((r) => r.levelId) as LevelId[];
+  if (unlockedIds.length === 0) return null;
+
+  const [unlockedCards, allProgress] = await Promise.all([
+    db.select().from(cards).where(inArray(cards.levelId, unlockedIds)),
+    db.select().from(progress).where(eq(progress.userId, userId)),
+  ]);
+  const progressByCard = new Map(allProgress.map((p) => [p.cardId, p]));
+  const now = new Date();
+
+  let soonest: Date | null = null;
+  for (const p of allProgress) {
+    if (p.nextReviewAt && p.nextReviewAt.getTime() > now.getTime()) {
+      if (!soonest || p.nextReviewAt < soonest) soonest = p.nextReviewAt;
+    }
+  }
+
+  const newCardsToday = countNewCardsToday(allProgress, now);
+  const hasNewCardsRemaining = unlockedCards.some((c) =>
+    isNew(progressByCard.get(c.id)),
+  );
+  if (newCardsToday >= NEW_CARDS_PER_DAY && hasNewCardsRemaining) {
+    const capReset = new Date(now);
+    capReset.setHours(24, 0, 0, 0); // next local midnight
+    if (!soonest || capReset < soonest) soonest = capReset;
+  }
+
+  return soonest ? soonest.toISOString() : null;
 }
 
 export async function checkLevelProgression(
@@ -503,10 +578,16 @@ export async function getWeakCards(
   ]);
   const cardsById = new Map(unlockedCards.map((c) => [c.id, c]));
 
-  // Only cards the user has actually reviewed — ranked weakest-first below,
-  // not filtered against an absolute threshold (see pickWeakestCard).
+  // Only cards the user has actually reviewed and hasn't already nailed —
+  // strong-accuracy cards aren't "weak" even if their ease factor is still
+  // relatively low. Otherwise unranked (see pickWeakestCard).
   return allProgress
-    .filter((p) => p.reviews > 0 && cardsById.has(p.cardId))
+    .filter(
+      (p) =>
+        p.reviews > 0 &&
+        cardsById.has(p.cardId) &&
+        (computeAccuracy(p.correctReviews, p.reviews) ?? 0) < STRONG_ACCURACY_THRESHOLD,
+    )
     .map((p) => ({
       ...toCard(cardsById.get(p.cardId)!),
       easeFactor: p.easeFactor,
@@ -514,6 +595,6 @@ export async function getWeakCards(
       reviews: p.reviews,
       accuracy: computeAccuracy(p.correctReviews, p.reviews),
     }))
-    .sort((a, b) => a.easeFactor - b.easeFactor)
+    .sort((a, b) => (a.accuracy ?? 0) - (b.accuracy ?? 0))
     .slice(0, limit);
 }

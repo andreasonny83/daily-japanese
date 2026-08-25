@@ -11,7 +11,7 @@ export type LevelId = (typeof LEVEL_ORDER)[number];
 
 export type CardType = "vocab" | "sentence";
 
-export type PracticeMode = "auto" | "level" | "weak";
+export type PracticeMode = "auto" | "level" | "weak" | "review";
 
 export interface Card {
   id: string;
