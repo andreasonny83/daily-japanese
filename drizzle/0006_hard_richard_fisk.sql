@@ -1,0 +1,1 @@
+ALTER TABLE "progress" ALTER COLUMN "correct_reviews" SET DATA TYPE real;

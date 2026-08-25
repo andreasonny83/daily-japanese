@@ -40,8 +40,15 @@ export const progress = pgTable(
       .notNull()
       .references(() => cards.id),
     reviews: integer("reviews").notNull().default(0),
-    correctReviews: integer("correct_reviews").notNull().default(0),
+    // Real, not integer: a "Familiar" rating contributes partial credit
+    // (see computeReviewCredit in lib/srs.ts), so this accumulates fractions.
+    correctReviews: real("correct_reviews").notNull().default(0),
     lastReviewed: timestamp("last_reviewed", { mode: "date" }),
+    // Set once, on the review that first creates this row — unlike
+    // lastReviewed/reviews (which churn on every same-day retry), this never
+    // changes again, so "new cards today" can be counted off it without
+    // flip-flopping as a requeued card gets reviewed a second/third time.
+    firstReviewedAt: timestamp("first_reviewed_at", { mode: "date" }),
     easeFactor: real("ease_factor").notNull().default(2.5),
     intervalDays: integer("interval_days").notNull().default(0),
     repetitions: integer("repetitions").notNull().default(0),

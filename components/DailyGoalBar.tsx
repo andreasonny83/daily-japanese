@@ -1,9 +1,13 @@
 export function DailyGoalBar({
   completed,
   total,
+  label = "New words today",
+  doneLabel = "Daily goal reached",
 }: {
   completed: number;
   total: number;
+  label?: string;
+  doneLabel?: string;
 }) {
   const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
   const done = completed >= total;
@@ -15,14 +19,14 @@ export function DailyGoalBar({
           {done ? (
             <>
               <i className="fas fa-check-circle mr-1 text-green-500" />
-              Daily goal reached
+              {doneLabel}
             </>
           ) : (
-            "New words today"
+            label
           )}
         </span>
         <span>
-          {completed}/{total}
+          {Math.min(completed, total)}/{total}
         </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">

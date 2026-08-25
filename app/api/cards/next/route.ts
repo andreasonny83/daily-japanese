@@ -19,10 +19,14 @@ export async function GET(request: NextRequest) {
     : undefined;
 
   const userId = await getCurrentUserId();
+  const excludeCardId = searchParams.get("excludeCardId") ?? undefined;
 
   if (!userId) {
     // Guests can browse any level, but nothing is tracked or gated.
-    const card = await getRandomCardForLevel(levelId ?? LEVEL_ORDER[0]);
+    const card = await getRandomCardForLevel(
+      levelId ?? LEVEL_ORDER[0],
+      excludeCardId,
+    );
     return NextResponse.json({ card });
   }
 
@@ -36,7 +40,14 @@ export async function GET(request: NextRequest) {
     ? requeueIdsParam.split(",").filter(Boolean)
     : undefined;
 
-  const card = await getNextCard(userId, mode, levelId, pullAhead, requeueCardIds);
+  const card = await getNextCard(
+    userId,
+    mode,
+    levelId,
+    pullAhead,
+    requeueCardIds,
+    excludeCardId,
+  );
   if (!card && (mode === "auto" || mode === "level")) {
     const nextAvailableAt = await getNextAvailableAt(userId);
     return NextResponse.json({ card: null, nextAvailableAt });

@@ -25,6 +25,7 @@ export function FlashCard({
   revealed,
   onReveal,
   caughtUp = false,
+  sessionComplete = false,
   onPullAhead,
   emptyMessage,
   nextAvailableAt,
@@ -34,6 +35,7 @@ export function FlashCard({
   revealed: boolean;
   onReveal: () => void;
   caughtUp?: boolean;
+  sessionComplete?: boolean;
   onPullAhead?: () => void;
   emptyMessage?: string;
   nextAvailableAt?: string | null;
@@ -80,10 +82,27 @@ export function FlashCard({
 
   function handleReveal() {
     onReveal();
-    // Called synchronously from the click handler so it stays inside the
-    // browser's user-activation window, letting autoplay succeed.
+    // Called synchronously from the click/keydown handler so it stays
+    // inside the browser's user-activation window, letting autoplay succeed.
     playAudio();
   }
+
+  // Spacebar reveals the card, same as clicking "Reveal Japanese" — but not
+  // while typing into an actual input/textarea, and not while re-pressed
+  // (browsers auto-repeat keydown, which would replay the reveal/audio).
+  useEffect(() => {
+    if (loading || !card || revealed) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== " " || e.repeat) return;
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      e.preventDefault();
+      handleReveal();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, card, revealed]);
 
   const playLabel =
     playState === "playing"
@@ -91,6 +110,20 @@ export function FlashCard({
       : playState === "error"
         ? "Error"
         : "Listen";
+
+  if (!loading && !card && sessionComplete) {
+    return (
+      <div className="w-full p-6 text-center md:p-8">
+        <p className="mb-1 text-sm font-semibold text-gray-700">
+          <i className="fas fa-trophy mr-1 text-amber-500" />
+          Session complete!
+        </p>
+        <p className="text-sm text-gray-500">
+          Great work — come back later for another round.
+        </p>
+      </div>
+    );
+  }
 
   if (!loading && !card && caughtUp) {
     return (
@@ -134,7 +167,11 @@ export function FlashCard({
           {card && (
             <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-600 md:text-xs">
               <i className="fas fa-brain mr-1 text-purple-400" />
-              {card.intervalDays > 0 ? `${card.intervalDays}d` : "New"}
+              {card.intervalDays > 0
+                ? `${card.intervalDays}d`
+                : card.isReview
+                  ? "Learning"
+                  : "New"}
             </span>
           )}
           {card?.accuracy !== null && card?.accuracy !== undefined && (
@@ -177,6 +214,9 @@ export function FlashCard({
         >
           <i className="fas fa-eye" />
           Reveal Japanese
+          <kbd className="ml-1 rounded border border-red-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-red-400">
+            Space
+          </kbd>
         </button>
       )}
 

@@ -28,6 +28,8 @@ function formatNextReview(nextReviewAt: string, intervalDays: number): string {
   return `Next review in ${intervalDays} days`;
 }
 
+const SESSION_GOAL_CARDS = 20;
+
 const LEVEL_LABELS: Record<string, string> = {
   "vocab-basics": "Vocabulary Basics",
   n5: "JLPT N5",
@@ -66,6 +68,15 @@ function PracticePageContent() {
     completed: number;
     total: number;
   } | null>(null);
+  const [sessionReviewed, setSessionReviewed] = useState(0);
+  // Once "Review early anyway" is used, keep pulling ahead of the due-date
+  // schedule for the rest of this session instead of reverting to the
+  // normal due-only pool after a single card.
+  const [pullAheadActive, setPullAheadActive] = useState(false);
+  // True once sessionReviewed hits SESSION_GOAL_CARDS during the
+  // post-daily-cap "session progress" phase — stops fetching more cards
+  // instead of letting pull-ahead run indefinitely.
+  const [sessionComplete, setSessionComplete] = useState(false);
 
   const [toastMsg, setToastMsg] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
@@ -76,6 +87,9 @@ function PracticePageContent() {
   // with a gap of at least one other card so the repeat isn't back-to-back.
   const pendingRequeueRef = useRef<Map<string, number>>(new Map());
   const requeueGapRef = useRef(0);
+  // Tracks the most-recently-shown card id so loadCard can ask the server
+  // to exclude it, preventing the same card from repeating back-to-back.
+  const lastCardIdRef = useRef<string | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToastMsg(message);
@@ -91,6 +105,9 @@ function PracticePageContent() {
       const params = new URLSearchParams({ mode: nextMode });
       if (levelId) params.set("levelId", levelId);
       if (pullAhead) params.set("pullAhead", "true");
+      if (lastCardIdRef.current) {
+        params.set("excludeCardId", lastCardIdRef.current);
+      }
 
       const requeueIds = [...pendingRequeueRef.current.keys()];
       if (requeueIds.length > 0 && requeueGapRef.current >= 1) {
@@ -103,6 +120,7 @@ function PracticePageContent() {
       setCard(nextCard);
       setNextAvailableAt(data.nextAvailableAt ?? null);
       setLoading(false);
+      lastCardIdRef.current = nextCard?.id ?? null;
 
       requeueGapRef.current =
         nextCard && pendingRequeueRef.current.has(nextCard.id)
@@ -163,6 +181,8 @@ function PracticePageContent() {
   }, [weakModeParam, isAuthed]);
 
   async function handleModeChange(value: string) {
+    setPullAheadActive(false);
+    setSessionComplete(false);
     if (value === "auto" || value === "weak" || value === "review") {
       setMode(value);
       setSelectedLevelId(undefined);
@@ -178,12 +198,20 @@ function PracticePageContent() {
     if (!card || !revealed || selectedScore !== null || !isAuthed) return;
     setSelectedScore(score);
 
+    const wasSessionMode =
+      mode !== "weak" &&
+      mode !== "review" &&
+      !!dailyGoal &&
+      dailyGoal.completed >= dailyGoal.total;
+    const newSessionCount = sessionReviewed + 1;
+
     const res = await fetch("/api/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cardId: card.id, score }),
+      body: JSON.stringify({ cardId: card.id, score, mode }),
     });
     const result = await res.json();
+    setSessionReviewed(newSessionCount);
 
     const wasPending = pendingRequeueRef.current.has(card.id);
     if (wasPending) {
@@ -216,17 +244,41 @@ function PracticePageContent() {
       showToast(formatNextReview(result.nextReviewAt, result.intervalDays));
     }
 
+    if (wasSessionMode && newSessionCount >= SESSION_GOAL_CARDS) {
+      setTimeout(() => {
+        setCard(null);
+        setSessionComplete(true);
+      }, 600);
+      return;
+    }
+
     // Brief pause so the selected score is visible before advancing.
-    setTimeout(() => loadCard(mode, selectedLevelId), 600);
+    setTimeout(() => loadCard(mode, selectedLevelId, pullAheadActive), 600);
   }
 
   function handleSkip() {
     if (isAuthed) {
-      loadCard(mode, selectedLevelId);
+      loadCard(mode, selectedLevelId, pullAheadActive);
     } else {
       loadCard("level", selectedLevelId);
     }
   }
+
+  // Lets 0-5 submit feedback the same as clicking a FeedbackButtons score,
+  // without hijacking digits typed into an actual input/textarea.
+  useEffect(() => {
+    if (!revealed || !card || selectedScore !== null || !isAuthed) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      if (!/^[0-5]$/.test(e.key)) return;
+      handleRate(Number(e.key));
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, card, selectedScore, isAuthed]);
 
   async function handleResetConfirm() {
     setShowResetModal(false);
@@ -236,6 +288,8 @@ function PracticePageContent() {
     await loadDailyGoal();
     setMode("auto");
     setSelectedLevelId(undefined);
+    setPullAheadActive(false);
+    setSessionComplete(false);
     await loadCard("auto");
   }
 
@@ -291,9 +345,21 @@ function PracticePageContent() {
           )}
         </div>
 
-        {isAuthed && mode !== "weak" && mode !== "review" && dailyGoal && (
-          <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
-        )}
+        {isAuthed &&
+          mode !== "weak" &&
+          mode !== "review" &&
+          !!card &&
+          dailyGoal &&
+          (dailyGoal.completed >= dailyGoal.total ? (
+            <DailyGoalBar
+              completed={sessionReviewed}
+              total={SESSION_GOAL_CARDS}
+              label="Session progress"
+              doneLabel="Session goal reached"
+            />
+          ) : (
+            <DailyGoalBar completed={dailyGoal.completed} total={dailyGoal.total} />
+          ))}
 
         <FlashCard
           card={card}
@@ -301,8 +367,14 @@ function PracticePageContent() {
           revealed={revealed}
           onReveal={() => setRevealed(true)}
           caughtUp={
-            isAuthed && !loading && !card && mode !== "weak" && mode !== "review"
+            isAuthed &&
+            !loading &&
+            !card &&
+            !sessionComplete &&
+            mode !== "weak" &&
+            mode !== "review"
           }
+          sessionComplete={sessionComplete}
           nextAvailableAt={nextAvailableAt}
           emptyMessage={
             mode === "weak"
@@ -314,15 +386,21 @@ function PracticePageContent() {
           onPullAhead={
             mode === "weak" || mode === "review"
               ? undefined
-              : () => loadCard(mode, selectedLevelId, true)
+              : () => {
+                  setPullAheadActive(true);
+                  setSessionReviewed(0);
+                  setSessionComplete(false);
+                  loadCard(mode, selectedLevelId, true);
+                }
           }
         />
 
         <div className="px-6 pb-6 md:px-8 md:pb-8">
           {isAuthed ? (
-            revealed && (
+            revealed &&
+            card && (
               <FeedbackButtons
-                disabled={loading || !card}
+                disabled={loading}
                 selectedScore={selectedScore}
                 onSelect={handleRate}
               />

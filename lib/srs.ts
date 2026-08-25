@@ -55,7 +55,17 @@ export function applySm2Update(
 /** Quality threshold (matches SM-2's pass/fail split) above which a review counts as correct. */
 export const PASSING_QUALITY = 3;
 
-/** Percentage of reviews graded >= PASSING_QUALITY, rounded to the nearest whole percent. */
+/** Partial credit given to a "Familiar" (quality 2) rating toward accuracy. */
+export const FAMILIAR_CREDIT = 0.5;
+
+/** How much a rating counts toward accuracy: full credit at/above PASSING_QUALITY, half credit for "Familiar" (2), none below that. */
+export function computeReviewCredit(quality: number): number {
+  if (quality >= PASSING_QUALITY) return 1;
+  if (quality === 2) return FAMILIAR_CREDIT;
+  return 0;
+}
+
+/** Percentage of accumulated review credit out of total reviews, rounded to the nearest whole percent. */
 export function computeAccuracy(
   correctReviews: number,
   reviews: number,

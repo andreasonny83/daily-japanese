@@ -16,8 +16,8 @@ import { cards, levels, progress, userLevelState } from "./schema";
 import {
   applySm2Update,
   computeAccuracy,
+  computeReviewCredit,
   DEFAULT_EASE_FACTOR,
-  PASSING_QUALITY,
   type Sm2State,
 } from "../srs";
 
@@ -90,9 +90,40 @@ function pickWeakestCard(
   return topSlice[Math.floor(Math.random() * topSlice.length)].card;
 }
 
+// Like pickWeakestCard, but for a pool that isn't pre-filtered to reviewed
+// cards only — never-reviewed cards get the default ease factor, so they
+// compete on equal footing with genuinely weak (low-ease) reviewed cards
+// rather than being excluded outright.
+function pickWeakestAnyCard(
+  pool: CardRow[],
+  progressByCard: Map<string, ProgressRow>,
+): CardRow | null {
+  if (pool.length === 0) return null;
+  const ranked = pool
+    .map((card) => ({
+      card,
+      easeFactor: progressByCard.get(card.id)?.easeFactor ?? DEFAULT_EASE_FACTOR,
+    }))
+    .sort((a, b) => a.easeFactor - b.easeFactor);
+  const topSlice = ranked.slice(0, Math.min(5, ranked.length));
+  return topSlice[Math.floor(Math.random() * topSlice.length)].card;
+}
+
 function pickRandom<T>(items: T[]): T | null {
   if (items.length === 0) return null;
   return items[Math.floor(Math.random() * items.length)];
+}
+
+// Filters out the just-shown card so the same one never repeats back-to-back
+// — unless it's the only candidate left, in which case showing it again is
+// the only option.
+function excludeLastShown(
+  pool: CardRow[],
+  excludeCardId: string | undefined,
+): CardRow[] {
+  if (!excludeCardId) return pool;
+  const filtered = pool.filter((c) => c.id !== excludeCardId);
+  return filtered.length > 0 ? filtered : pool;
 }
 
 // Forces a same-session retry card back into rotation ahead of the normal
@@ -137,11 +168,13 @@ function pickSoonestDueCard(
 
 function countNewCardsToday(allProgress: ProgressRow[], now: Date): number {
   const todayKey = now.toISOString().slice(0, 10);
+  // firstReviewedAt is set once and never changes, so a requeued card being
+  // reviewed a second/third time today doesn't drop back out of the count
+  // (unlike reviews/lastReviewed, which mutate on every retry).
   return allProgress.filter(
     (p) =>
-      p.reviews === 1 &&
-      p.lastReviewed &&
-      p.lastReviewed.toISOString().slice(0, 10) === todayKey,
+      p.firstReviewedAt &&
+      p.firstReviewedAt.toISOString().slice(0, 10) === todayKey,
   ).length;
 }
 
@@ -281,13 +314,15 @@ export async function getLevelsPublic(): Promise<LevelSummary[]> {
  */
 export async function getRandomCardForLevel(
   levelId: LevelId,
+  excludeCardId?: string,
 ): Promise<CardWithProgress | null> {
   const levelCards = await db
     .select()
     .from(cards)
     .where(eq(cards.levelId, levelId));
   if (levelCards.length === 0) return null;
-  const picked = levelCards[Math.floor(Math.random() * levelCards.length)];
+  const pool = excludeLastShown(levelCards, excludeCardId);
+  const picked = pool[Math.floor(Math.random() * pool.length)];
   return {
     ...toCard(picked),
     intervalDays: 0,
@@ -303,6 +338,7 @@ export async function getNextCard(
   levelId?: LevelId,
   pullAhead = false,
   requeueCardIds?: string[],
+  excludeCardId?: string,
 ): Promise<CardWithProgress | null> {
   await ensureEntryLevelUnlocked(userId);
 
@@ -332,7 +368,20 @@ export async function getNextCard(
       .where(eq(cards.levelId, levelId));
     const requeued = pickRequeuedCard(levelCards, requeueCardIds);
     if (requeued) return toCardWithProgress(requeued, progressByCard, true);
-    return pickFromPool(levelCards, progressByCard, now, {
+
+    if (levelId === "vocab-basics") {
+      // Pure drill: pulls from the whole level regardless of nextReviewAt,
+      // weighted toward the weakest cards (see submitProgress's isDrillMode,
+      // which skips SM-2 progression for reviews picked this way).
+      const picked = pickWeakestAnyCard(
+        excludeLastShown(levelCards, excludeCardId),
+        progressByCard,
+      );
+      if (!picked) return null;
+      return toCardWithProgress(picked, progressByCard, !!progressByCard.get(picked.id));
+    }
+
+    return pickFromPool(excludeLastShown(levelCards, excludeCardId), progressByCard, now, {
       pullAhead,
       allowNewCards: true,
       newCardsToday,
@@ -352,7 +401,10 @@ export async function getNextCard(
       const p = progressByCard.get(c.id);
       return !!p && p.reviews > 0;
     });
-    const picked = pickWeakestCard(reviewed, progressByCard);
+    const picked = pickWeakestCard(
+      excludeLastShown(reviewed, excludeCardId),
+      progressByCard,
+    );
     return picked ? toCardWithProgress(picked, progressByCard, true) : null;
   }
 
@@ -367,7 +419,7 @@ export async function getNextCard(
       const p = progressByCard.get(c.id);
       return !!p && p.reviews > 0;
     });
-    const picked = pickRandom(reviewed);
+    const picked = pickRandom(excludeLastShown(reviewed, excludeCardId));
     return picked ? toCardWithProgress(picked, progressByCard, true) : null;
   }
 
@@ -379,7 +431,7 @@ export async function getNextCard(
     .where(inArray(cards.levelId, orderedUnlocked));
   const requeued = pickRequeuedCard(allUnlockedCards, requeueCardIds);
   if (requeued) return toCardWithProgress(requeued, progressByCard, true);
-  return pickFromPool(allUnlockedCards, progressByCard, now, {
+  return pickFromPool(excludeLastShown(allUnlockedCards, excludeCardId), progressByCard, now, {
     pullAhead,
     allowNewCards: true,
     newCardsToday,
@@ -462,6 +514,7 @@ export async function submitProgress(
   userId: string,
   cardId: string,
   score: number,
+  mode: PracticeMode = "auto",
 ): Promise<ProgressResult> {
   const [card] = await db
     .select()
@@ -485,10 +538,22 @@ export async function submitProgress(
     : { easeFactor: DEFAULT_EASE_FACTOR, intervalDays: 0, repetitions: 0 };
 
   const now = new Date();
-  const updated = applySm2Update(prevState, score, now);
+  // Weak/review-mode reviews, and the vocab-basics level drill (see
+  // pickWeakestCard/mode==="review"/levelId==="vocab-basics" above), are a
+  // deliberate drill, not the spaced schedule — they shouldn't push the
+  // real SM-2 schedule further out, otherwise repeatedly drilling the same
+  // card in one sitting compounds the interval unrealistically.
+  const isDrillMode =
+    (mode === "weak" ||
+      mode === "review" ||
+      (mode === "level" && card.levelId === "vocab-basics")) &&
+    !!existing;
+  const updated = isDrillMode
+    ? { ...prevState, nextReviewAt: existing!.nextReviewAt ?? now }
+    : applySm2Update(prevState, score, now);
   const newReviews = (existing?.reviews ?? 0) + 1;
   const newCorrectReviews =
-    (existing?.correctReviews ?? 0) + (score >= PASSING_QUALITY ? 1 : 0);
+    (existing?.correctReviews ?? 0) + computeReviewCredit(score);
 
   if (existing) {
     await db
@@ -514,6 +579,7 @@ export async function submitProgress(
       reviews: newReviews,
       correctReviews: newCorrectReviews,
       lastReviewed: now,
+      firstReviewedAt: now,
     });
   }
 

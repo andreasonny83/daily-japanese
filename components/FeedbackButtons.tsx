@@ -57,6 +57,11 @@ export function FeedbackButtons({
           );
         })}
       </div>
+      <p className="mt-2 text-center text-[10px] text-gray-400">
+        Tip: press <kbd className="rounded border border-gray-300 bg-gray-50 px-1">0</kbd>–
+        <kbd className="rounded border border-gray-300 bg-gray-50 px-1">5</kbd> on your
+        keyboard
+      </p>
     </div>
   );
 }

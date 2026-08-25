@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUserId } from "@/lib/auth/session";
 import { submitProgress } from "@/lib/db/queries";
+import type { PracticeMode } from "@/types";
+
+const VALID_MODES: PracticeMode[] = ["auto", "level", "weak", "review"];
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserId();
@@ -10,7 +13,11 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { cardId, score } = body as { cardId?: string; score?: number };
+  const { cardId, score, mode } = body as {
+    cardId?: string;
+    score?: number;
+    mode?: string;
+  };
 
   if (
     typeof cardId !== "string" ||
@@ -24,6 +31,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await submitProgress(userId, cardId, score);
+  const practiceMode = VALID_MODES.includes(mode as PracticeMode)
+    ? (mode as PracticeMode)
+    : "auto";
+
+  const result = await submitProgress(userId, cardId, score, practiceMode);
   return NextResponse.json(result);
 }
