@@ -47,7 +47,10 @@ export default function RootLayout({
               </span>
             </Link>
             <nav className="flex items-center gap-4 text-sm font-medium text-gray-600">
-              <Link href="/" className="transition-colors hover:text-red-600">
+              <Link
+                href="/practice"
+                className="transition-colors hover:text-red-600"
+              >
                 Practice
               </Link>
               <Link

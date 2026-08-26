@@ -88,3 +88,15 @@ export const userLevelState = pgTable(
     ),
   }),
 );
+
+export const userStreak = pgTable("user_streak", {
+  // One row per user (not per-card/per-level like progress/userLevelState),
+  // so userId is the primary key rather than a separate unique index.
+  userId: text("user_id").primaryKey(),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  // UTC-midnight timestamp of the last day with any activity (see
+  // lib/date.ts's utcDayRange) — compared against "today" to decide whether
+  // an update continues, resets, or no-ops the streak.
+  lastActiveDate: timestamp("last_active_date", { mode: "date" }),
+});

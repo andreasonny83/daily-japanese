@@ -57,6 +57,13 @@
       "when": 1787663697237,
       "tag": "0007_motionless_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787729316189,
+      "tag": "0008_rapid_morbius",
+      "breakpoints": true
     }
   ]
 }

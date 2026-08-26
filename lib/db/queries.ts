@@ -18,6 +18,7 @@ import {
   DEFAULT_EASE_FACTOR,
   type Sm2State,
 } from "../srs";
+import { computeStreakUpdate } from "../streak";
 import {
   computeLevelMastery,
   excludeLastShown,
@@ -32,7 +33,7 @@ import {
   toCardWithProgress,
 } from "./cardSelection";
 import { db } from "./index";
-import { cards, levels, progress, userLevelState } from "./schema";
+import { cards, levels, progress, userLevelState, userStreak } from "./schema";
 
 export { excludeLastShown, pickRequeuedCard } from "./cardSelection";
 
@@ -429,9 +430,15 @@ export async function submitProgress(
 
   // Drill-mode reviews never touch intervalDays (see isDrillMode above), so
   // they can never change level mastery — skip the two extra queries.
-  const { leveledUp, newLevelId } = isDrillMode
-    ? { leveledUp: false, newLevelId: null }
-    : await checkLevelProgression(userId, card.levelId as LevelId);
+  // Streak activity is recorded regardless of drill mode: any practice today
+  // keeps the streak alive, per the streak's own "any activity counts" rule.
+  const [{ leveledUp, newLevelId }, , newCardsToday] = await Promise.all([
+    isDrillMode
+      ? Promise.resolve({ leveledUp: false, newLevelId: null })
+      : checkLevelProgression(userId, card.levelId as LevelId),
+    recordStreakActivity(userId, now),
+    countNewCardsToday(userId, now),
+  ]);
 
   return {
     easeFactor: updated.easeFactor,
@@ -441,8 +448,60 @@ export async function submitProgress(
     reviews: saved.reviews,
     leveledUp,
     newLevelId,
-    newCardsToday: await countNewCardsToday(userId, now),
+    newCardsToday,
     newCardsCap: NEW_CARDS_PER_DAY,
+  };
+}
+
+// Same-day repeat calls are a no-op (computeStreakUpdate returns the
+// existing state by reference), so this only writes to the DB on a
+// genuine day boundary — not on every single card rating.
+async function recordStreakActivity(userId: string, now: Date): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(userStreak)
+    .where(eq(userStreak.userId, userId))
+    .limit(1);
+
+  const existingState = existing
+    ? {
+        currentStreak: existing.currentStreak,
+        longestStreak: existing.longestStreak,
+        lastActiveDate: existing.lastActiveDate,
+      }
+    : null;
+  const updated = computeStreakUpdate(existingState, now);
+  if (updated === existingState) return;
+
+  await db
+    .insert(userStreak)
+    .values({
+      userId,
+      currentStreak: updated.currentStreak,
+      longestStreak: updated.longestStreak,
+      lastActiveDate: updated.lastActiveDate,
+    })
+    .onConflictDoUpdate({
+      target: userStreak.userId,
+      set: {
+        currentStreak: updated.currentStreak,
+        longestStreak: updated.longestStreak,
+        lastActiveDate: updated.lastActiveDate,
+      },
+    });
+}
+
+export async function getStreak(
+  userId: string,
+): Promise<{ currentStreak: number; longestStreak: number }> {
+  const [row] = await db
+    .select()
+    .from(userStreak)
+    .where(eq(userStreak.userId, userId))
+    .limit(1);
+  return {
+    currentStreak: row?.currentStreak ?? 0,
+    longestStreak: row?.longestStreak ?? 0,
   };
 }
 

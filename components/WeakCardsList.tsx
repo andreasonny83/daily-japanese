@@ -16,7 +16,7 @@ export function WeakCardsList({ cards }: { cards: WeakCard[] }) {
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700">Weakest cards</h3>
         <Link
-          href="/?mode=weak"
+          href="/practice?mode=weak"
           className="rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
         >
           Review these <i className="fas fa-arrow-right ml-1" />
